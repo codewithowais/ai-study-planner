@@ -1,0 +1,23 @@
+# The web app runs in Docker. The companion service runs on the HOST
+# (via `npm run companion`) because it needs access to your host's
+# `claude` / `codex` CLI and their credentials — those never enter the
+# container. The container reaches the host companion via
+# host.docker.internal.
+services:
+  web:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - COMPANION_URL=http://host.docker.internal:7788
+      - COMPANION_SECRET=${COMPANION_SECRET}
+      - AI_PROVIDER=${AI_PROVIDER:-claude}
+      - AI_MODEL=${AI_MODEL:-}
+    extra_hosts:
+      # Lets the container reach services on the host (Linux + Docker Desktop).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist the JSON data store outside the container.
+      - ./data:/app/data
+    restart: unless-stopped

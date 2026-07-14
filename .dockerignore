@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+data
+uploads
+.toolchain
+.env
+.env*.local
+*.log
+.next-dev.log
+.companion.log
+docs
+FIN623_handouts_1_45-1.pdf

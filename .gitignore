@@ -1,0 +1,39 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# local data (JSON store) & uploads
+/data/
+/uploads/
+
+# env & secrets
+.env
+.env*.local
+companion/.secret
+
+# toolchain (local Node 23 shim)
+/.toolchain/
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+.vscode/
+.idea/
+
+# logs & temp
+*.log
+.last-upload*.json
+*.tsbuildinfo
+
+# uploaded / source study material (may be copyrighted — keep out of the repo)
+*.pdf
