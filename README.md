@@ -156,22 +156,31 @@ CLI isn't installed, linking straight to settings.
 
 ## A more natural lesson voice
 
-"Listen" uses your **browser's built-in** speech (no network, no keys), so how
-human it sounds depends on the voices your browser exposes — the Web Speech API
-itself has no "emotion"/tone control, only speed and voice. The app always
-auto-selects the most natural voice available and hides the robotic "novelty"
-voices. To get a genuinely warm, expressive voice — free and fully offline:
+The **⚙ menu** next to "Listen" on any lesson lets you choose a voice engine:
+
+- **Natural — lifelike (beta):** a small neural voice that runs **on your
+  device** in the browser (via WebAssembly). It sounds far more human than the
+  built-in voices. The first play downloads a ~60MB voice model once (from
+  HuggingFace) and caches it; after that it works offline. **Your lesson text
+  never leaves your machine** — synthesis is local. Trade-off: the first
+  download takes a moment and synthesis uses your CPU, so it's a touch slower
+  to start than the built-in voice.
+- **Built-in — instant:** your browser's own speech (no download). How human it
+  sounds depends on the voices the browser exposes; the Web Speech API has no
+  emotion/tone control, only speed and voice. The app auto-selects the most
+  natural one and hides the robotic "novelty" voices.
+
+To make the **built-in** engine sound better (free, fully offline):
 
 - **macOS:** System Settings › Accessibility › Spoken Content › System Voice ›
   *Manage Voices*, and download a voice marked **(Enhanced)** or **(Premium)**
-  (e.g. Ava, Zoe, Samantha). Then open the app in **Safari** and pick it from
-  the voice menu on any lesson.
+  (e.g. Ava, Zoe, Samantha). Then open the app in **Safari** and pick it.
 - **Windows:** open the app in **Microsoft Edge** — its "Online (Natural)"
   voices sound far more human and appear automatically.
 
-(A cloud neural voice with true tone control — e.g. a "warm, confident tutor"
-instruction — is possible but intentionally not built in: it needs an API key
-and would send lesson text off your machine.)
+(A *cloud* neural voice with explicit tone control — e.g. a "warm, confident
+tutor" instruction — would sound the most expressive, but is intentionally not
+built in: it needs an API key and would send lesson text off your machine.)
 
 ## Data & privacy
 

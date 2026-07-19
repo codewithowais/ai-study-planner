@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Volume2, Pause, Play, Square, Clock, Settings2 } from "lucide-react";
+import { Volume2, Pause, Play, Square, Clock, Settings2, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,20 +12,29 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  NEURAL_VOICES,
+  DEFAULT_NEURAL_VOICE,
+  chunkForNeural,
+  synthesizeNeural,
+} from "@/lib/tts/neural-voice";
 
 /**
- * "Listen to this lesson" — the browser's built-in speech synthesis (no
- * network, no keys), tuned to sound like a calm, patient tutor rather than a
- * robot: the most natural available voice is auto-selected (novelty/robotic
- * voices are hidden and never picked), the pace is gentle, short pauses
- * separate sentences, and text is cleaned so citations/symbols/bullets aren't
- * read aloud. Students can pick their own voice and reading speed (remembered).
+ * "Listen to this lesson" — two engines the student can switch between:
  *
- * NOTE: expressiveness (emotion/confidence) is a property of the VOICE, not
- * something the Web Speech API lets us control — it only exposes rate/pitch/
- * voice, no SSML or emotion. The lifelike voices (Siri/Enhanced on Safari,
- * "… Online (Natural)" on Edge) come from the browser+OS; when only compact
- * voices exist we surface a hint on how to get a better one.
+ *  • "Built-in" — the browser's own speech synthesis (instant, no download).
+ *    How human it sounds depends entirely on the voices the browser exposes;
+ *    the Web Speech API has no emotion/tone control, only rate + voice. We
+ *    auto-pick the most natural one, hide the novelty/robotic voices, and (when
+ *    only flat "compact" voices exist) show how to unlock a better one.
+ *
+ *  • "Natural (beta)" — a small neural voice that runs locally in the browser
+ *    via WebAssembly (see lib/tts/neural-voice). Genuinely lifelike; the first
+ *    use downloads a ~60MB model, then it's offline. The lesson text never
+ *    leaves the machine.
+ *
+ * Text is cleaned so citations/symbols/bullets aren't read aloud; both engines
+ * honour the reading-speed control (neural via audio playbackRate).
  */
 
 const SPEEDS = [
@@ -125,17 +134,32 @@ function cleanForSpeech(text: string): string {
     .trim();
 }
 
+type PlayState = "idle" | "playing" | "paused" | "preparing";
+type Engine = "browser" | "neural";
+
 export function LessonAudio({ text }: { text: string }) {
-  const [state, setState] = useState<"idle" | "playing" | "paused">("idle");
+  const [state, setState] = useState<PlayState>("idle");
   const [supported, setSupported] = useState(false);
   const [speedIndex, setSpeedIndex] = useState(DEFAULT_SPEED);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceName, setVoiceName] = useState<string>(""); // "" = automatic
   const [platform, setPlatform] = useState<"mac" | "win" | "other">("other");
+  const [engine, setEngine] = useState<Engine>("browser");
+  const [neuralVoice, setNeuralVoice] = useState<string>(DEFAULT_NEURAL_VOICE);
+  const [prep, setPrep] = useState<number | null>(null); // model-download fraction
+  const [note, setNote] = useState<string | null>(null); // inline status/error
+
   const chunks = useRef<string[]>([]);
   const idx = useRef(0);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   const rate = useRef<number>(SPEEDS[DEFAULT_SPEED].rate);
+  // Neural engine
+  const engineRef = useRef<Engine>("browser");
+  const neuralVoiceRef = useRef<string>(DEFAULT_NEURAL_VOICE);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const buffers = useRef<(Blob | null)[]>([]);
+  const pending = useRef<(Promise<Blob> | null)[]>([]);
+  const stopped = useRef(false);
 
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   const readMin = Math.max(1, Math.round(words / 200));
@@ -146,7 +170,6 @@ export function LessonAudio({ text }: { text: string }) {
     setSupported(!!synth);
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     setPlatform(/Mac|iP(hone|ad|od)/i.test(ua) ? "mac" : /Win/i.test(ua) ? "win" : "other");
-    if (!synth) return;
 
     try {
       const rawSpeed = localStorage.getItem("asp_tts_speed");
@@ -157,10 +180,21 @@ export function LessonAudio({ text }: { text: string }) {
       }
       const savedVoice = localStorage.getItem("asp_tts_voice");
       if (savedVoice) setVoiceName(savedVoice);
+      const savedEngine = localStorage.getItem("asp_tts_engine");
+      if (savedEngine === "neural" || savedEngine === "browser") {
+        setEngine(savedEngine);
+        engineRef.current = savedEngine;
+      }
+      const savedNeural = localStorage.getItem("asp_tts_neural");
+      if (savedNeural) {
+        setNeuralVoice(savedNeural);
+        neuralVoiceRef.current = savedNeural;
+      }
     } catch {
       /* ignore */
     }
 
+    if (!synth) return;
     const loadVoices = () => {
       const v = synth.getVoices();
       if (v.length) setVoices(englishVoices(v));
@@ -177,7 +211,7 @@ export function LessonAudio({ text }: { text: string }) {
     };
   }, []);
 
-  // Resolve the active voice whenever the list or the saved choice changes.
+  // Resolve the active browser voice whenever the list or saved choice changes.
   useEffect(() => {
     if (!voices.length) return;
     voiceRef.current =
@@ -186,14 +220,22 @@ export function LessonAudio({ text }: { text: string }) {
 
   // Stop narration when the topic (text) changes.
   useEffect(() => {
+    stopped.current = true;
     try {
       window.speechSynthesis?.cancel();
     } catch {
       /* ignore */
     }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPrep(null);
+    setNote(null);
     setState("idle");
   }, [text]);
 
+  // ---- Built-in (Web Speech) engine -------------------------------------
   const speakFrom = useCallback((i: number) => {
     const synth = window.speechSynthesis;
     if (!synth) return;
@@ -217,7 +259,7 @@ export function LessonAudio({ text }: { text: string }) {
     synth.speak(u);
   }, []);
 
-  const play = useCallback(() => {
+  const startBrowser = useCallback(() => {
     const synth = window.speechSynthesis;
     if (!synth) return;
     synth.cancel();
@@ -229,20 +271,139 @@ export function LessonAudio({ text }: { text: string }) {
     speakFrom(0);
   }, [text, speakFrom]);
 
+  // ---- Natural (neural, in-browser WASM) engine -------------------------
+  // Synthesize chunk i if not already buffered. `withProgress` drives the
+  // download indicator (only for the chunk the student is waiting on).
+  const synthChunk = useCallback(
+    async (i: number, withProgress: boolean): Promise<Blob | null> => {
+      if (i < 0 || i >= chunks.current.length) return null;
+      if (buffers.current[i]) return buffers.current[i];
+      // De-dupe in-flight work: if the look-ahead already started this chunk,
+      // await THAT instead of kicking off a second (model-reloading) synth.
+      if (pending.current[i]) {
+        if (withProgress) setPrep(null); // mid-flight; can't report % now
+        return pending.current[i];
+      }
+      const job = synthesizeNeural(
+        chunks.current[i],
+        neuralVoiceRef.current,
+        withProgress ? (f) => setPrep(f) : undefined,
+      )
+        .then((blob) => {
+          buffers.current[i] = blob;
+          return blob;
+        })
+        .finally(() => {
+          pending.current[i] = null;
+          if (withProgress) setPrep(null);
+        });
+      pending.current[i] = job;
+      return job;
+    },
+    [],
+  );
+
+  const neuralPlayFrom = useCallback(
+    async (i: number) => {
+      if (stopped.current) return;
+      if (i >= chunks.current.length) {
+        setState("idle");
+        return;
+      }
+      idx.current = i;
+      let blob = buffers.current[i];
+      if (!blob) {
+        setState("preparing");
+        try {
+          blob = await synthChunk(i, true);
+        } catch {
+          setPrep(null);
+          setNote("Couldn't start the natural voice — switching to the built-in one.");
+          setEngine("browser");
+          engineRef.current = "browser";
+          try {
+            localStorage.setItem("asp_tts_engine", "browser");
+          } catch {
+            /* ignore */
+          }
+          startBrowser();
+          return;
+        }
+      }
+      if (stopped.current || !blob) return;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.playbackRate = rate.current;
+      (audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+      audioRef.current = audio;
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        neuralPlayFrom(idx.current + 1);
+      };
+      audio.onerror = () => URL.revokeObjectURL(url);
+      // Synthesize the next chunk while this one plays (no progress UI).
+      void synthChunk(i + 1, false).catch(() => {});
+      setState("playing");
+      try {
+        await audio.play();
+      } catch {
+        // Autoplay was blocked after the download gap — wait for a tap.
+        setState("paused");
+        setNote("Voice ready — tap Resume to play.");
+      }
+    },
+    [synthChunk, startBrowser],
+  );
+
+  const startNeural = useCallback(() => {
+    stopped.current = false;
+    setNote(null);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    chunks.current = chunkForNeural(cleanForSpeech(text));
+    buffers.current = new Array(chunks.current.length).fill(null);
+    pending.current = new Array(chunks.current.length).fill(null);
+    if (!chunks.current.length) return;
+    setState("preparing");
+    void neuralPlayFrom(0);
+  }, [text, neuralPlayFrom]);
+
+  // ---- Shared transport --------------------------------------------------
+  const play = useCallback(() => {
+    if (engineRef.current === "neural") startNeural();
+    else startBrowser();
+  }, [startNeural, startBrowser]);
+
   function pause() {
-    window.speechSynthesis?.pause();
+    if (engineRef.current === "neural") audioRef.current?.pause();
+    else window.speechSynthesis?.pause();
     setState("paused");
   }
   function resume() {
-    window.speechSynthesis?.resume();
+    setNote(null);
+    if (engineRef.current === "neural") audioRef.current?.play().catch(() => {});
+    else window.speechSynthesis?.resume();
     setState("playing");
   }
   function stop() {
-    window.speechSynthesis?.cancel();
+    stopped.current = true;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    try {
+      window.speechSynthesis?.cancel();
+    } catch {
+      /* ignore */
+    }
+    setPrep(null);
+    setNote(null);
     setState("idle");
   }
 
-  // Re-start the current sentence so a new speed/voice applies immediately.
+  // Re-start the current sentence so a new browser speed/voice applies now.
   const restartIfPlaying = useCallback(() => {
     if (state === "idle") return;
     const at = idx.current;
@@ -260,7 +421,12 @@ export function LessonAudio({ text }: { text: string }) {
     } catch {
       /* ignore */
     }
-    restartIfPlaying();
+    if (engineRef.current === "neural") {
+      // Live for the neural engine — no re-synth needed.
+      if (audioRef.current) audioRef.current.playbackRate = rate.current;
+    } else {
+      restartIfPlaying();
+    }
   }
 
   function onVoiceChange(value: string) {
@@ -273,8 +439,45 @@ export function LessonAudio({ text }: { text: string }) {
     } catch {
       /* ignore */
     }
-    restartIfPlaying();
+    if (engineRef.current === "browser") restartIfPlaying();
   }
+
+  function onEngineChange(value: string) {
+    const e: Engine = value === "neural" ? "neural" : "browser";
+    stop();
+    setEngine(e);
+    engineRef.current = e;
+    setNote(null);
+    try {
+      localStorage.setItem("asp_tts_engine", e);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onNeuralVoiceChange(value: string) {
+    setNeuralVoice(value);
+    neuralVoiceRef.current = value;
+    try {
+      localStorage.setItem("asp_tts_neural", value);
+    } catch {
+      /* ignore */
+    }
+    // Different voice → drop the cached audio and restart from where we are.
+    if (engineRef.current === "neural" && state !== "idle") {
+      const at = idx.current;
+      buffers.current = new Array(chunks.current.length).fill(null);
+      pending.current = new Array(chunks.current.length).fill(null);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      stopped.current = false;
+      void neuralPlayFrom(at);
+    }
+  }
+
+  const busy = state === "preparing";
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -290,6 +493,17 @@ export function LessonAudio({ text }: { text: string }) {
               <Volume2 className="h-4 w-4" />
               Listen
             </Button>
+          )}
+          {busy && (
+            <>
+              <span className="inline-flex items-center gap-1.5 px-2 text-primary">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {prep !== null ? `Downloading voice… ${Math.round(prep * 100)}%` : "Preparing…"}
+              </span>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={stop} aria-label="Stop">
+                <Square className="h-3.5 w-3.5" />
+              </Button>
+            </>
           )}
           {state === "playing" && (
             <>
@@ -324,10 +538,20 @@ export function LessonAudio({ text }: { text: string }) {
                 aria-label="Voice and speed settings"
               >
                 <Settings2 className="h-3.5 w-3.5" />
-                {SPEEDS[speedIndex].label}
+                {engine === "neural" ? "Natural" : SPEEDS[speedIndex].label}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-[70vh] w-72 overflow-y-auto">
+              <DropdownMenuLabel>Voice engine</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={engine} onValueChange={onEngineChange}>
+                <DropdownMenuRadioItem value="neural">
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />
+                  Natural — lifelike (beta)
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="browser">Built-in — instant</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+
+              <DropdownMenuSeparator />
               <DropdownMenuLabel>Reading speed</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={String(speedIndex)} onValueChange={onSpeedChange}>
                 {SPEEDS.map((s, i) => (
@@ -337,58 +561,79 @@ export function LessonAudio({ text }: { text: string }) {
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
-              {voices.length > 0 && (
+
+              <DropdownMenuSeparator />
+              {engine === "neural" ? (
                 <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>Voice</DropdownMenuLabel>
-                  {!naturalAvailable && (
-                    <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
-                      <p className="mb-1 font-medium text-foreground">
-                        Sounds flat? Unlock a warmer, human voice — free:
-                      </p>
-                      {platform === "mac" ? (
-                        <ol className="ml-3.5 list-decimal space-y-1">
-                          <li>
-                            System Settings › Accessibility › Spoken Content › System
-                            Voice › <span className="font-medium">Manage Voices</span>,
-                            and download one marked{" "}
-                            <span className="font-medium">(Enhanced)</span> or{" "}
-                            <span className="font-medium">(Premium)</span> — e.g. Ava,
-                            Zoe, or Samantha.
-                          </li>
-                          <li>
-                            Open this page in <span className="font-medium">Safari</span>,
-                            then pick that voice here.
-                          </li>
-                        </ol>
-                      ) : platform === "win" ? (
-                        <p>
-                          Open this page in{" "}
-                          <span className="font-medium">Microsoft Edge</span> — its
-                          “Online (Natural)” voices sound far more human and will show up
-                          in this list automatically.
-                        </p>
-                      ) : (
-                        <p>
-                          Install a “Natural”/“Neural” system voice, or open the app in a
-                          Chromium-based browser — better voices then appear here
-                          automatically.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <DropdownMenuRadioGroup value={voiceName || "__auto"} onValueChange={onVoiceChange}>
-                    <DropdownMenuRadioItem value="__auto">Automatic (best)</DropdownMenuRadioItem>
-                    {voices.map((v) => (
-                      <DropdownMenuRadioItem key={v.name} value={v.name}>
-                        {baseName(v.name)}
+                  <DropdownMenuLabel>Natural voice</DropdownMenuLabel>
+                  <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
+                    Runs on your device. The first play downloads a ~60MB voice, then it
+                    works offline — your lesson text never leaves your machine.
+                  </p>
+                  <DropdownMenuRadioGroup value={neuralVoice} onValueChange={onNeuralVoiceChange}>
+                    {NEURAL_VOICES.map((v) => (
+                      <DropdownMenuRadioItem key={v.id} value={v.id}>
+                        {v.label}
                       </DropdownMenuRadioItem>
                     ))}
                   </DropdownMenuRadioGroup>
                 </>
+              ) : (
+                voices.length > 0 && (
+                  <>
+                    <DropdownMenuLabel>Built-in voice</DropdownMenuLabel>
+                    {!naturalAvailable && (
+                      <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
+                        <p className="mb-1 font-medium text-foreground">
+                          Sounds flat? Try “Natural” above — or unlock a better built-in
+                          voice, free:
+                        </p>
+                        {platform === "mac" ? (
+                          <ol className="ml-3.5 list-decimal space-y-1">
+                            <li>
+                              System Settings › Accessibility › Spoken Content › System
+                              Voice › <span className="font-medium">Manage Voices</span>,
+                              and download one marked{" "}
+                              <span className="font-medium">(Enhanced)</span> or{" "}
+                              <span className="font-medium">(Premium)</span> — e.g. Ava,
+                              Zoe, or Samantha.
+                            </li>
+                            <li>
+                              Open this page in <span className="font-medium">Safari</span>,
+                              then pick that voice here.
+                            </li>
+                          </ol>
+                        ) : platform === "win" ? (
+                          <p>
+                            Open this page in{" "}
+                            <span className="font-medium">Microsoft Edge</span> — its
+                            “Online (Natural)” voices sound far more human and will show
+                            up here automatically.
+                          </p>
+                        ) : (
+                          <p>
+                            Install a “Natural”/“Neural” system voice, or open the app in
+                            a Chromium-based browser — better voices then appear here
+                            automatically.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <DropdownMenuRadioGroup value={voiceName || "__auto"} onValueChange={onVoiceChange}>
+                      <DropdownMenuRadioItem value="__auto">Automatic (best)</DropdownMenuRadioItem>
+                      {voices.map((v) => (
+                        <DropdownMenuRadioItem key={v.name} value={v.name}>
+                          {baseName(v.name)}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </>
+                )
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {note && <span className="text-xs text-muted-foreground">· {note}</span>}
         </>
       )}
     </div>
