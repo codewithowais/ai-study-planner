@@ -22,6 +22,7 @@ function lessonWith(text: string): Lesson {
     examples: [{ title: "Worked", content: "First we compute, then we add back the disallowed items." }],
     examTips: ["Remember the add-backs."],
     selfCheck: [],
+    visuals: [],
     citations: [{ page: 73, snippet: "Exercise 1" }],
   };
 }

@@ -2,6 +2,51 @@ import { z } from "zod";
 
 const useful = (minimum: number) => z.string().trim().min(minimum);
 
+/**
+ * Optional visual explainers a lesson may include — rendered as native React
+ * (no diagram library). Kept lenient at parse time: invalid items are filtered
+ * out (see lessonSchema.visuals) so a malformed diagram never blocks a lesson.
+ */
+export const visualSchema = z.discriminatedUnion("type", [
+  // A process or decision sequence.
+  z.object({
+    type: z.literal("flow"),
+    title: useful(3),
+    steps: z
+      .array(z.object({ label: useful(2), note: z.string().trim().optional() }))
+      .min(2)
+      .max(7),
+  }),
+  // Two or three things students mix up, side by side.
+  z.object({
+    type: z.literal("compare"),
+    title: useful(3),
+    columns: z.array(useful(1)).min(2).max(3),
+    rows: z
+      .array(z.object({ label: useful(1), cells: z.array(z.string()) }))
+      .min(2)
+      .max(6),
+  }),
+  // Events in order.
+  z.object({
+    type: z.literal("timeline"),
+    title: useful(3),
+    events: z.array(z.object({ when: useful(1), what: useful(2) })).min(2).max(7),
+  }),
+  // A multi-step calculation laid out as a running ladder.
+  z.object({
+    type: z.literal("calc"),
+    title: useful(3),
+    steps: z
+      .array(
+        z.object({ label: useful(2), value: useful(1), note: z.string().trim().optional() }),
+      )
+      .min(2)
+      .max(8),
+  }),
+]);
+export type Visual = z.infer<typeof visualSchema>;
+
 export const lessonSchema = z.object({
   intro: useful(40),
   sections: z
@@ -24,6 +69,19 @@ export const lessonSchema = z.object({
   // (default []): never block/retry a lesson just because it lacks them.
   selfCheck: z
     .array(z.object({ question: useful(8), answer: useful(8) }))
+    .default([]),
+  // Lenient: unknown/invalid visuals are filtered out (never throw), capped at
+  // 3, so a bad diagram can't block or force a paid retry of the lesson.
+  visuals: z
+    .array(z.unknown())
+    .transform((arr) =>
+      arr
+        .flatMap((v) => {
+          const parsed = visualSchema.safeParse(v);
+          return parsed.success ? [parsed.data] : [];
+        })
+        .slice(0, 3),
+    )
     .default([]),
   citations: z
     .array(z.object({ page: z.number().int().positive(), snippet: useful(3) }))

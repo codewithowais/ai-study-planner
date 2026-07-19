@@ -30,6 +30,7 @@ import {
 import { TopicNavigator } from "@/components/topic-navigator";
 import { SourceDrawer } from "@/components/source-drawer";
 import { LessonAudio } from "@/components/lesson-audio";
+import { LessonVisuals } from "@/components/lesson-visuals";
 import { Generating } from "@/components/generating";
 import { Button } from "@/components/ui/button";
 import {
@@ -462,6 +463,8 @@ function LessonView({
               )}
             </section>
           ))}
+
+          {lesson.visuals.length > 0 && <LessonVisuals visuals={lesson.visuals} />}
 
           {lesson.examples.length > 0 && (
             <section>
