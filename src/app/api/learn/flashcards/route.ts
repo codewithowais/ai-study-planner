@@ -33,14 +33,13 @@ export const POST = handle(async (req: Request) => {
       feature: "flashcards",
       promptVersion: FLASHCARDS_PROMPT_VERSION,
       provider: user.settings.provider,
-      model: user.settings.model ?? "default",
+      model: user.settings.model ?? process.env.AI_MODEL ?? "default",
       chapterTitle: loc.chapterTitle,
       topic: loc.topic,
-      // Resources are immutable once extracted (uploads only append new
-      // resource ids; pages are never mutated), so the id list stands in for
-      // the full source text. A future "replace PDF" feature must mint new
-      // resource ids.
-      resourceIds: course.resourceIds,
+      // NB: intentionally NOT course.resourceIds — that course-global list
+      // would re-bill EVERY topic when any new resource is added. loc.topic
+      // carries topic.sources (the only pages gatherSourceText reads), so the
+      // topic alone determines the grounding text.
     },
     read: () => (regenerate ? null : getFlashcards<unknown>(courseId, topicId)),
     save: (cache) => saveFlashcards(courseId, topicId, cache),

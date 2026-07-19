@@ -48,17 +48,18 @@ export const POST = handle(async (req: Request) => {
     feature: "lesson",
     promptVersion: LESSON_PROMPT_VERSION,
     provider: user.settings.provider,
-    model: user.settings.model ?? "default",
+    // Match generate()'s effective model resolution so an env-set model still
+    // invalidates the cache (settings.model → AI_MODEL → default).
+    model: user.settings.model ?? process.env.AI_MODEL ?? "default",
     level: user.onboarding.level,
     depth: variant,
     courseTitle: course.title,
     chapterTitle: loc.chapterTitle,
     topic: loc.topic,
-    // Resources are immutable once extracted: uploads only ever append new
-    // resource ids to course.resourceIds and pages are never mutated, so the
-    // id list stands in for the full source text. A future "replace PDF"
-    // feature must mint new resource ids or cached content would go stale.
-    resourceIds: course.resourceIds,
+    // NB: intentionally NOT course.resourceIds — that course-global list would
+    // re-bill EVERY topic's lesson when any new resource is added. loc.topic
+    // carries topic.sources, and gatherSourceText reads only the topic's own
+    // pages, so the topic alone determines the grounding text.
   };
   // Pages cited by OTHER topics too: numbered exercises there belong to the
   // neighbouring lessons, so they must not be hard-required from this one.
