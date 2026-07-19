@@ -69,7 +69,9 @@ export const lessonSchema = z.object({
   // (default []): never block/retry a lesson just because it lacks them.
   selfCheck: z
     .array(z.object({ question: useful(8), answer: useful(8) }))
-    .default([]),
+    // .catch (not .default) so a non-array/null value the model might emit for
+    // this optional field falls back to [] instead of throwing the lesson.
+    .catch([]),
   // Lenient: unknown/invalid visuals are filtered out (never throw), capped at
   // 3, so a bad diagram can't block or force a paid retry of the lesson.
   visuals: z
@@ -82,7 +84,10 @@ export const lessonSchema = z.object({
         })
         .slice(0, 3),
     )
-    .default([]),
+    // .catch (not .default): if the model returns null / a non-array for this
+    // optional field, the base array parse fails BEFORE the transform runs —
+    // .catch([]) recovers, so a bad diagram can never throw the whole lesson.
+    .catch([]),
   citations: z
     .array(z.object({ page: z.number().int().positive(), snippet: useful(3) }))
     .default([]),
