@@ -19,6 +19,7 @@ import {
   GraduationCap,
   ClipboardList,
   ScrollText,
+  HelpCircle,
   X as XIcon,
   ListTree,
   Layers,
@@ -499,6 +500,8 @@ function LessonView({
             </section>
           )}
 
+          {lesson.selfCheck.length > 0 && <SelfCheck items={lesson.selfCheck} />}
+
           {lesson.citations.length > 0 && (
             <section>
               <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
@@ -565,6 +568,57 @@ function LessonView({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Active-recall block: the student tries each question, then reveals the
+ * answer. A quick self-test before the graded quiz, right where they finish
+ * reading. */
+function SelfCheck({ items }: { items: { question: string; answer: string }[] }) {
+  const [revealed, setRevealed] = useState<Set<number>>(new Set());
+  const toggle = (i: number) =>
+    setRevealed((current) => {
+      const next = new Set(current);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+
+  return (
+    <section>
+      <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
+        <HelpCircle className="h-4 w-4 text-primary" />
+        Check yourself
+      </h2>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Try each one in your head first — then reveal the answer to see how you did.
+      </p>
+      <div className="space-y-3">
+        {items.map((item, i) => {
+          const open = revealed.has(i);
+          return (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <p className="font-medium">
+                  {i + 1}. {item.question}
+                </p>
+                {open && (
+                  <div className="mt-2 rounded-md bg-secondary/60 p-3 text-sm text-foreground/90">
+                    <RichText text={item.answer} />
+                  </div>
+                )}
+                <button
+                  onClick={() => toggle(i)}
+                  className="mt-2 text-sm font-medium text-primary hover:underline"
+                >
+                  {open ? "Hide answer" : "Reveal answer"}
+                </button>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

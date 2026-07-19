@@ -32,10 +32,13 @@ export const maxDuration = 240;
 
 export const POST = handle(async (req: Request) => {
   const user = await requireUser();
-  const { courseId, topicId, regenerate, depth, prefetch } = schema.parse(await req.json());
+  const { courseId, topicId, regenerate, depth, prefetch } = schema.parse(
+    await req.json(),
+  );
 
   const course = await getCourse(courseId);
-  if (!course || course.userId !== user.id) return fail("Course not found.", 404);
+  if (!course || course.userId !== user.id)
+    return fail("Course not found.", 404);
 
   const loc = locateTopic(course, topicId);
   if (!loc) return fail("Topic not found.", 404);
@@ -57,6 +60,19 @@ export const POST = handle(async (req: Request) => {
     // feature must mint new resource ids or cached content would go stale.
     resourceIds: course.resourceIds,
   };
+  // Pages cited by OTHER topics too: numbered exercises there belong to the
+  // neighbouring lessons, so they must not be hard-required from this one.
+  const otherTopicPages = new Set<number>();
+  for (const s of course.subjects)
+    for (const ch of s.chapters)
+      for (const t of ch.topics) {
+        if (t.id === loc.topic.id) continue;
+        for (const src of t.sources) otherTopicPages.add(src.page);
+      }
+  const exclusivePages = loc.topic.sources
+    .map((s) => s.page)
+    .filter((p) => !otherTopicPages.has(p));
+
   // Source text is only gathered on a cache miss — cache hits do zero
   // resource I/O.
   const generateFreshLesson = async () => {
@@ -68,11 +84,12 @@ export const POST = handle(async (req: Request) => {
         courseTitle: course.title,
         level: user.onboarding.level,
         sources,
+        exclusivePages,
         // Must match the fingerprint's depth or the variant cache would be
         // poisoned with default-depth content.
         depth,
       },
-      { provider: user.settings.provider, model: user.settings.model }
+      { provider: user.settings.provider, model: user.settings.model },
     );
   };
 
@@ -83,6 +100,9 @@ export const POST = handle(async (req: Request) => {
       read: () => getLesson<unknown>(courseId, topicId, variant),
       save: (cache) => saveLesson(courseId, topicId, cache, variant),
       generate: generateFreshLesson,
+      // Old pre-envelope lessons predate the easy-tone + exercise-coverage
+      // rules — regenerate them to the current standard on next access.
+      acceptLegacy: false,
     });
     return ok({ prefetched: true });
   }
@@ -93,6 +113,7 @@ export const POST = handle(async (req: Request) => {
       regenerate ? null : getLesson<unknown>(courseId, topicId, variant),
     save: (cache) => saveLesson(courseId, topicId, cache, variant),
     generate: generateFreshLesson,
+    acceptLegacy: false,
   });
 
   // Studying a topic counts toward today's streak.
@@ -129,7 +150,12 @@ export const POST = handle(async (req: Request) => {
 
   return ok({
     lesson,
-    topic: { id: loc.topic.id, title: loc.topic.title, subtopics: loc.topic.subtopics, sources: loc.topic.sources },
+    topic: {
+      id: loc.topic.id,
+      title: loc.topic.title,
+      subtopics: loc.topic.subtopics,
+      sources: loc.topic.sources,
+    },
     nav: {
       chapterTitle: loc.chapterTitle,
       subjectTitle: loc.subjectTitle,
