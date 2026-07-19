@@ -1,22 +1,8 @@
-import { nanoid } from "nanoid";
-import { z } from "zod";
 import type { Course, QuizQuestion } from "@/lib/types";
-import { generate, parseModelJson } from "@/lib/ai/provider";
+import { parseModelJson } from "@/lib/ai/provider";
+import { withQualityRetry } from "@/lib/ai/quality";
+import { parseQuestionSet, toQuizQuestion } from "@/lib/quiz/question-quality";
 import { getResource } from "@/lib/store/repositories";
-
-const schema = z.object({
-  questions: z
-    .array(
-      z.object({
-        prompt: z.string(),
-        choices: z.array(z.string()).min(2).max(6),
-        correctIndex: z.number().int(),
-        explanation: z.string().default(""),
-        sourcePage: z.number().optional(),
-      })
-    )
-    .default([]),
-});
 
 const SYSTEM =
   "You are an exam question writer creating a mock exam that samples across a " +
@@ -63,6 +49,7 @@ Source (p.${page ?? "?"}): ${snippet}`;
   const prompt = `Create a mock exam of ${count} multiple-choice questions for the course "${course.title}".
 Spread the questions across the topics listed below (roughly one or two per topic).
 Each question: exactly 4 options, exactly one correct ("correctIndex" 0-based), an "explanation", and "sourcePage" when identifiable.
+Use plausible distractors without trick wording. Explanations must teach why the correct answer is right. Return exactly ${count} complete questions.
 
 Return ONLY this JSON:
 {"questions": [ {"prompt": string, "choices": [string, string, string, string], "correctIndex": number, "explanation": string, "sourcePage": number} ]}
@@ -71,23 +58,15 @@ Return ONLY this JSON:
 ${context}
 </UNTRUSTED_MATERIAL>`;
 
-  const { text } = await generate({
+  const parsed = await withQualityRetry({
+    feature: "mock-exam",
     system: SYSTEM,
     prompt,
     provider: opts.provider,
     model: opts.model,
     timeoutMs: 200000,
+    parse: (text) => parseQuestionSet(parseModelJson(text), count),
   });
 
-  const parsed = schema.parse(parseModelJson(text));
-  return parsed.questions
-    .filter((q) => q.correctIndex >= 0 && q.correctIndex < q.choices.length)
-    .map((q) => ({
-      id: nanoid(8),
-      prompt: q.prompt.trim(),
-      choices: q.choices.map((c) => c.trim()),
-      correctIndex: q.correctIndex,
-      explanation: q.explanation.trim(),
-      source: q.sourcePage ? { file: "", page: q.sourcePage, snippet: "" } : undefined,
-    }));
+  return parsed.map(toQuizQuestion);
 }

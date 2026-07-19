@@ -46,7 +46,7 @@ import { api, ApiError } from "@/lib/client";
 import { useToast } from "@/components/ui/use-toast";
 import type { Lesson } from "@/lib/teach/lesson";
 import type { Summary } from "@/lib/teach/summary";
-import type { SourceRef, TopicProgress } from "@/lib/types";
+import type { SourceRef, TopicProgress, TutorChatMessage } from "@/lib/types";
 
 interface LessonPayload {
   lesson: Lesson;
@@ -61,8 +61,6 @@ interface LessonPayload {
   };
   progress: TopicProgress;
 }
-
-type ChatMsg = { role: "user" | "assistant"; content: string };
 
 /** Flatten a lesson into clean, speakable/plain text (for TTS + read-time). */
 function lessonToText(lesson: Lesson): string {
@@ -579,10 +577,30 @@ function TutorChat({
   topicId: string;
   topicTitle: string;
 }) {
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [messages, setMessages] = useState<TutorChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoadingHistory(true);
+    api
+      .get<{ messages: TutorChatMessage[] }>(
+        `/api/learn/chat?courseId=${encodeURIComponent(courseId)}&topicId=${encodeURIComponent(topicId)}`
+      )
+      .then((result) => {
+        if (active) setMessages(result.messages);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId, topicId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -591,24 +609,42 @@ function TutorChat({
   async function send(preset?: string) {
     const text = (preset ?? input).trim();
     if (!text || sending) return;
-    const next = [...messages, { role: "user" as const, content: text }];
-    setMessages(next);
+    const temporaryId = `pending-${Date.now()}`;
+    setMessages((current) => [
+      ...current,
+      {
+        id: temporaryId,
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
     setInput("");
     setSending(true);
     try {
-      const res = await api.post<{ reply: string }>("/api/learn/chat", {
+      const res = await api.post<{
+        reply: string;
+        messages: TutorChatMessage[];
+      }>("/api/learn/chat", {
         courseId,
         topicId,
-        messages: next,
+        message: text,
       });
-      setMessages((m) => [...m, { role: "assistant", content: res.reply }]);
+      setMessages((current) => [
+        ...current.filter((item) => item.id !== temporaryId),
+        ...res.messages,
+      ]);
     } catch (err) {
       setMessages((m) => [
         ...m,
         {
+          id: `error-${Date.now()}`,
           role: "assistant",
           content:
-            err instanceof ApiError ? `⚠️ ${err.message}` : "⚠️ Could not reach the tutor.",
+            err instanceof ApiError
+              ? `Warning: ${err.message}`
+              : "Warning: Could not reach the tutor.",
+          createdAt: new Date().toISOString(),
         },
       ]);
     } finally {
@@ -623,7 +659,13 @@ function TutorChat({
         <p className="text-sm font-medium">Ask your tutor</p>
       </div>
       <div ref={scrollRef} className="scroll-slim flex-1 space-y-3 overflow-y-auto p-3">
-        {messages.length === 0 && (
+        {loadingHistory && messages.length === 0 && (
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading your tutor history...
+          </div>
+        )}
+        {!loadingHistory && messages.length === 0 && (
           <div className="mt-4 space-y-3 px-1">
             <p className="px-1 text-center text-sm text-muted-foreground">
               Stuck on “{topicTitle}”? Ask anything — answers are grounded in your material.
@@ -647,9 +689,9 @@ function TutorChat({
             </div>
           </div>
         )}
-        {messages.map((m, i) => (
+        {messages.map((m) => (
           <div
-            key={i}
+            key={m.id}
             className={
               m.role === "user"
                 ? "ml-auto max-w-[85%] rounded-lg rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground"

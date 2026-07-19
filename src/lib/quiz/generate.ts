@@ -1,21 +1,7 @@
-import { nanoid } from "nanoid";
-import { z } from "zod";
 import type { QuizQuestion, Topic } from "@/lib/types";
-import { generate, parseModelJson } from "@/lib/ai/provider";
-
-const schema = z.object({
-  questions: z
-    .array(
-      z.object({
-        prompt: z.string(),
-        choices: z.array(z.string()).min(2).max(6),
-        correctIndex: z.number().int(),
-        explanation: z.string().default(""),
-        sourcePage: z.number().optional(),
-      })
-    )
-    .default([]),
-});
+import { parseModelJson } from "@/lib/ai/provider";
+import { withQualityRetry } from "@/lib/ai/quality";
+import { parseQuestionSet, toQuizQuestion } from "@/lib/quiz/question-quality";
 
 const SYSTEM =
   "You are an exam question writer. You create fair, unambiguous multiple-choice " +
@@ -51,9 +37,11 @@ Requirements:
 - Each question has exactly 4 options.
 - Exactly one option is correct; "correctIndex" is its 0-based index.
 - Mix difficulty: some recall, some application.
+- Use plausible distractors, but never trick wording or multiple defensible answers.
 - "explanation": explain why the correct answer is right (and, briefly, why a tempting wrong one is wrong).
 - "sourcePage": the page number the question is based on, when identifiable.
 - Base questions on the material below; do not ask about anything not supported by it.
+- Return exactly ${count} complete questions; never omit questions to save tokens.
 
 Return ONLY this JSON:
 {"questions": [ {"prompt": string, "choices": [string, string, string, string], "correctIndex": number, "explanation": string, "sourcePage": number} ]}
@@ -62,26 +50,15 @@ Return ONLY this JSON:
 ${material || "(no extracted material — write standard fundamental questions for this topic)"}
 </UNTRUSTED_MATERIAL>`;
 
-  const { text } = await generate({
+  const parsed = await withQualityRetry({
+    feature: "quiz",
     system: SYSTEM,
     prompt,
     provider: opts.provider,
     model: opts.model,
     timeoutMs: 150000,
+    parse: (text) => parseQuestionSet(parseModelJson(text), count),
   });
 
-  const parsed = schema.parse(parseModelJson(text));
-
-  return parsed.questions
-    .filter((q) => q.correctIndex >= 0 && q.correctIndex < q.choices.length)
-    .map((q) => ({
-      id: nanoid(8),
-      prompt: q.prompt.trim(),
-      choices: q.choices.map((c) => c.trim()),
-      correctIndex: q.correctIndex,
-      explanation: q.explanation.trim(),
-      source: q.sourcePage
-        ? { file: "", page: q.sourcePage, snippet: "" }
-        : undefined,
-    }));
+  return parsed.map(toQuizQuestion);
 }

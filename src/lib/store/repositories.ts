@@ -4,6 +4,7 @@ import type {
   Resource,
   Session,
   Term,
+  TutorChat,
   User,
 } from "@/lib/types";
 import {
@@ -246,17 +247,21 @@ export async function updateProgress(
 
 export async function getLesson<T>(
   courseId: string,
-  topicId: string
+  topicId: string,
+  variant: "default" | "simpler" | "deeper" = "default"
 ): Promise<T | null> {
-  return readJson<T | null>(`lessons/${courseId}_${topicId}.json`, null);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  return readJson<T | null>(`lessons/${courseId}_${topicId}${suffix}.json`, null);
 }
 
 export async function saveLesson<T>(
   courseId: string,
   topicId: string,
-  lesson: T
+  lesson: T,
+  variant: "default" | "simpler" | "deeper" = "default"
 ): Promise<void> {
-  await writeJson<T>(`lessons/${courseId}_${topicId}.json`, lesson);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  await writeJson<T>(`lessons/${courseId}_${topicId}${suffix}.json`, lesson);
 }
 
 export async function getSummary<T>(
@@ -287,6 +292,36 @@ export async function saveFlashcards<T>(
   cards: T
 ): Promise<void> {
   await writeJson<T>(`flashcards/${courseId}_${topicId}.json`, cards);
+}
+
+/* -------------------------- Tutor chats --------------------------- */
+
+export async function getTutorChat(
+  courseId: string,
+  topicId: string
+): Promise<TutorChat | null> {
+  return readJson<TutorChat | null>(`chats/${courseId}_${topicId}.json`, null);
+}
+
+export async function saveTutorChat(chat: TutorChat): Promise<void> {
+  await writeJson<TutorChat>(`chats/${chat.courseId}_${chat.topicId}.json`, chat);
+}
+
+/**
+ * Atomic read-modify-write for a tutor chat (per-file lock via updateJson).
+ * Concurrent senders each see the truly-latest stored chat inside `mutate`,
+ * so merges are additive with no lost-update window.
+ */
+export async function updateTutorChat(
+  courseId: string,
+  topicId: string,
+  mutate: (current: TutorChat | null) => TutorChat
+): Promise<TutorChat> {
+  return (await updateJson<TutorChat | null>(
+    `chats/${courseId}_${topicId}.json`,
+    null,
+    (current) => mutate(current)
+  )) as TutorChat;
 }
 
 /* ------------------------- Pending quizzes ------------------------ */

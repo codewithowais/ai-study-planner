@@ -9,7 +9,12 @@ import {
   updateProgress,
 } from "@/lib/store/repositories";
 import { gatherSourceText, locateTopic } from "@/lib/teach/context";
-import { generateLesson, type Lesson } from "@/lib/teach/lesson";
+import {
+  generateLesson,
+  LESSON_PROMPT_VERSION,
+  type Lesson,
+} from "@/lib/teach/lesson";
+import { getOrGenerateCached } from "@/lib/ai/cache-key";
 import { localDateKey } from "@/lib/streak";
 import type { CourseProgress } from "@/lib/types";
 
@@ -35,43 +40,60 @@ export const POST = handle(async (req: Request) => {
   const loc = locateTopic(course, topicId);
   if (!loc) return fail("Topic not found.", 404);
 
-  // Prefetch: if already cached, do nothing; otherwise generate + cache only.
-  if (prefetch) {
-    const cached = await getLesson<Lesson>(courseId, topicId);
-    if (!cached) {
-      const sources = await gatherSourceText(course, loc.topic);
-      const lesson = await generateLesson(
-        {
-          topic: loc.topic,
-          chapterTitle: loc.chapterTitle,
-          courseTitle: course.title,
-          level: user.onboarding.level,
-          sources,
-        },
-        { provider: user.settings.provider, model: user.settings.model }
-      );
-      await saveLesson(courseId, topicId, lesson);
-    }
-    return ok({ prefetched: true });
-  }
-
-  // A depth change always re-teaches at that depth and re-caches.
-  let lesson = regenerate || depth ? null : await getLesson<Lesson>(courseId, topicId);
-  if (!lesson) {
+  const variant = depth ?? "default";
+  const fingerprintInput = {
+    feature: "lesson",
+    promptVersion: LESSON_PROMPT_VERSION,
+    provider: user.settings.provider,
+    model: user.settings.model ?? "default",
+    level: user.onboarding.level,
+    depth: variant,
+    courseTitle: course.title,
+    chapterTitle: loc.chapterTitle,
+    topic: loc.topic,
+    // Resources are immutable once extracted: uploads only ever append new
+    // resource ids to course.resourceIds and pages are never mutated, so the
+    // id list stands in for the full source text. A future "replace PDF"
+    // feature must mint new resource ids or cached content would go stale.
+    resourceIds: course.resourceIds,
+  };
+  // Source text is only gathered on a cache miss — cache hits do zero
+  // resource I/O.
+  const generateFreshLesson = async () => {
     const sources = await gatherSourceText(course, loc.topic);
-    lesson = await generateLesson(
+    return generateLesson(
       {
         topic: loc.topic,
         chapterTitle: loc.chapterTitle,
         courseTitle: course.title,
         level: user.onboarding.level,
         sources,
+        // Must match the fingerprint's depth or the variant cache would be
+        // poisoned with default-depth content.
         depth,
       },
       { provider: user.settings.provider, model: user.settings.model }
     );
-    await saveLesson(courseId, topicId, lesson);
+  };
+
+  // Prefetch: if already cached, do nothing; otherwise generate + cache only.
+  if (prefetch) {
+    await getOrGenerateCached<Lesson>({
+      fingerprintInput,
+      read: () => getLesson<unknown>(courseId, topicId, variant),
+      save: (cache) => saveLesson(courseId, topicId, cache, variant),
+      generate: generateFreshLesson,
+    });
+    return ok({ prefetched: true });
   }
+
+  const lesson = await getOrGenerateCached<Lesson>({
+    fingerprintInput,
+    read: () =>
+      regenerate ? null : getLesson<unknown>(courseId, topicId, variant),
+    save: (cache) => saveLesson(courseId, topicId, cache, variant),
+    generate: generateFreshLesson,
+  });
 
   // Studying a topic counts toward today's streak.
   await recordStudyDay(user.id, localDateKey());

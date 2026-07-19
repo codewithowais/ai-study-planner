@@ -9,6 +9,9 @@ import type {
   Topic,
 } from "@/lib/types";
 import { generate, parseModelJson } from "@/lib/ai/provider";
+import { withQualityRetry } from "@/lib/ai/quality";
+import { segmentResourcePages } from "@/lib/ingest/source-segments";
+import { cleanResourcePages } from "@/lib/ingest/clean-text";
 
 /**
  * Outline generation uses a map-reduce strategy so it scales to large
@@ -20,9 +23,8 @@ import { generate, parseModelJson } from "@/lib/ai/provider";
  *   3. TITLE  — one small call to name the course from the chapter list.
  */
 
-const BATCH_PAGES = 15;
+const BATCH_PAGES = 10;
 const CONCURRENCY = 4;
-const CHARS_PER_PAGE = 1500;
 
 const batchSchema = z.object({
   subject: z.string().default("General"),
@@ -30,10 +32,10 @@ const batchSchema = z.object({
     .array(
       z.object({
         chapter: z.string().default(""),
-        title: z.string(),
+        title: z.string().trim().min(2),
         subtopics: z.array(z.string()).default([]),
-        summary: z.string().default(""),
-        examImportance: z.string().default(""),
+        summary: z.string().trim().min(10),
+        examImportance: z.string().trim().min(10),
         sources: z
           .array(
             z.object({
@@ -41,7 +43,7 @@ const batchSchema = z.object({
               snippet: z.string().default(""),
             })
           )
-          .default([]),
+          .min(1),
       })
     )
     .default([]),
@@ -88,7 +90,7 @@ async function mapWithConcurrency<T, R>(
 
 function batchPrompt(fileName: string, pages: ResourcePage[]): string {
   const body = pages
-    .map((p) => `[[PAGE ${p.page}]]\n${p.text.slice(0, CHARS_PER_PAGE)}`)
+    .map((p) => `[[PAGE ${p.page}]]\n${p.text}`)
     .join("\n\n");
   const nums = pages.map((p) => p.page).join(", ");
 
@@ -116,14 +118,22 @@ ${body}
 async function titlePrompt(
   fileName: string,
   subjectTitles: string[],
-  chapterTitles: string[]
+  chapterTitles: string[],
+  opts: { provider?: "claude" | "codex"; model?: string }
 ): Promise<{ title: string; description: string }> {
   const prompt = `A course was built from "${fileName}".
 Subjects: ${subjectTitles.slice(0, 12).join("; ") || "n/a"}.
 Chapters: ${chapterTitles.slice(0, 25).join("; ") || "n/a"}.
 Return ONLY JSON: {"title": string, "description": string}. The title names the overall course; the description is one or two sentences.`;
   try {
-    const { text } = await generate({ system: SYSTEM, prompt, timeoutMs: 90000 });
+    const { text } = await generate({
+      system: SYSTEM,
+      prompt,
+      provider: opts.provider,
+      model: opts.model,
+      timeoutMs: 90000,
+      feature: "outline-title",
+    });
     const parsed = z
       .object({ title: z.string(), description: z.string().default("") })
       .parse(parseModelJson(text));
@@ -141,29 +151,72 @@ export async function generateOutline(
   pages: ResourcePage[],
   opts: { provider?: "claude" | "codex"; model?: string } = {}
 ): Promise<GeneratedOutline> {
-  const batches = chunk(pages, BATCH_PAGES);
+  // Cleaning is idempotent: new uploads arrive pre-cleaned from extraction,
+  // and this covers any legacy pages fed in for re-outlining.
+  const batches = chunk(segmentResourcePages(cleanResourcePages(pages)), BATCH_PAGES);
 
+  const failedBatchPages: number[] = [];
+  let failedBatchCount = 0;
+  let lastBatchError: unknown = null;
   const batchResults = await mapWithConcurrency(
     batches,
     CONCURRENCY,
     async (batch) => {
-      const { text } = await generate({
-        system: SYSTEM,
-        prompt: batchPrompt(fileName, batch),
-        provider: opts.provider,
-        model: opts.model,
-        timeoutMs: 180000,
-      });
+      const prompt = batchPrompt(fileName, batch);
       try {
-        return batchSchema.parse(parseModelJson<BatchResult>(text));
-      } catch {
-        // A single bad batch shouldn't sink the whole outline.
+        return await withQualityRetry({
+          feature: "outline-map",
+          system: SYSTEM,
+          prompt,
+          provider: opts.provider,
+          model: opts.model,
+          timeoutMs: 180000,
+          parse: (text) => {
+            const parsed = batchSchema.parse(parseModelJson<BatchResult>(text));
+            const sourceChars = batch.reduce(
+              (total, page) => total + page.text.trim().length,
+              0
+            );
+            if (sourceChars >= 300 && parsed.topics.length === 0) {
+              throw new Error("A substantive outline batch cannot be empty.");
+            }
+            return parsed;
+          },
+        });
+      } catch (error) {
+        // A single bad batch (front matter, tables of contents, model slip)
+        // must never sink the whole course. Record the gap so coverage
+        // reporting can flag those pages for a follow-up pass.
+        failedBatchPages.push(...batch.map((p) => p.page));
+        failedBatchCount++;
+        lastBatchError = error;
         return { subject: "General", topics: [] } as BatchResult;
       }
     }
   );
 
+  // Per-batch tolerance must not mask a total outage (companion down, CLI
+  // broken, auth missing): if EVERY batch failed, this is an infrastructure
+  // error — surface it so the course is marked failed instead of silently
+  // becoming a permanent empty course.
+  if (batches.length > 0 && failedBatchCount === batches.length) {
+    throw lastBatchError instanceof Error
+      ? lastBatchError
+      : new Error("Outline generation failed for every batch.");
+  }
+
   const merged = mergeBatches(batchResults, pages, fileName);
+  if (failedBatchPages.length > 0) {
+    merged.coverage.notes = [
+      merged.coverage.notes,
+      `Pages ${failedBatchPages.join(", ")} could not be outlined automatically and need a follow-up pass.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    merged.coverage.flaggedGaps.push(
+      `Unprocessed pages: ${failedBatchPages.join(", ")}`
+    );
+  }
 
   const chapterTitles = merged.subjects.flatMap((s) =>
     s.chapters.map((c) => c.title)
@@ -171,7 +224,8 @@ export async function generateOutline(
   const { title, description } = await titlePrompt(
     fileName,
     merged.subjects.map((s) => s.title),
-    chapterTitles
+    chapterTitles,
+    opts
   );
 
   // Single uploaded document => single subject named after the course.

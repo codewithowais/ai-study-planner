@@ -3,7 +3,12 @@ import { requireUser } from "@/lib/auth";
 import { fail, handle, ok } from "@/lib/api";
 import { getCourse, getFlashcards, saveFlashcards } from "@/lib/store/repositories";
 import { gatherSourceText, locateTopic } from "@/lib/teach/context";
-import { generateFlashcards, type Flashcards } from "@/lib/teach/flashcards";
+import {
+  generateFlashcards,
+  FLASHCARDS_PROMPT_VERSION,
+  type Flashcards,
+} from "@/lib/teach/flashcards";
+import { getOrGenerateCached } from "@/lib/ai/cache-key";
 
 const schema = z.object({
   courseId: z.string(),
@@ -23,15 +28,33 @@ export const POST = handle(async (req: Request) => {
   const loc = locateTopic(course, topicId);
   if (!loc) return fail("Topic not found.", 404);
 
-  let deck = regenerate ? null : await getFlashcards<Flashcards>(courseId, topicId);
-  if (!deck || deck.cards.length === 0) {
-    const sources = await gatherSourceText(course, loc.topic);
-    deck = await generateFlashcards(
-      { topic: loc.topic, chapterTitle: loc.chapterTitle, sources },
-      { provider: user.settings.provider, model: user.settings.model }
-    );
-    await saveFlashcards(courseId, topicId, deck);
-  }
+  const deck = await getOrGenerateCached<Flashcards>({
+    fingerprintInput: {
+      feature: "flashcards",
+      promptVersion: FLASHCARDS_PROMPT_VERSION,
+      provider: user.settings.provider,
+      model: user.settings.model ?? "default",
+      chapterTitle: loc.chapterTitle,
+      topic: loc.topic,
+      // Resources are immutable once extracted (uploads only append new
+      // resource ids; pages are never mutated), so the id list stands in for
+      // the full source text. A future "replace PDF" feature must mint new
+      // resource ids.
+      resourceIds: course.resourceIds,
+    },
+    read: () => (regenerate ? null : getFlashcards<unknown>(courseId, topicId)),
+    save: (cache) => saveFlashcards(courseId, topicId, cache),
+    // An empty cached deck is a past bad generation — treat it as a miss.
+    isStale: (cached) => cached.cards.length === 0,
+    // Source text is only gathered on a cache miss — hits do zero resource I/O.
+    generate: async () => {
+      const sources = await gatherSourceText(course, loc.topic);
+      return generateFlashcards(
+        { topic: loc.topic, chapterTitle: loc.chapterTitle, sources },
+        { provider: user.settings.provider, model: user.settings.model }
+      );
+    },
+  });
 
   return ok({ topicTitle: loc.topic.title, cards: deck.cards });
 });
