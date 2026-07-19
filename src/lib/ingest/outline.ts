@@ -35,15 +35,7 @@ const batchSchema = z.object({
         title: z.string().trim().min(2),
         subtopics: z.array(z.string()).default([]),
         summary: z.string().trim().min(10),
-        examImportance: z.string().trim().min(10),
-        sources: z
-          .array(
-            z.object({
-              page: z.number(),
-              snippet: z.string().default(""),
-            })
-          )
-          .min(1),
+        sources: z.array(z.object({ page: z.number() })).min(1),
       })
     )
     .default([]),
@@ -62,6 +54,17 @@ const SYSTEM =
   "You are an expert curriculum designer. You organize a student's uploaded " +
   "study material into a clean, exam-ready structure. You output ONLY valid " +
   "JSON — no prose, no markdown fences.";
+
+/** First ~12 words of a page, for citation display — derived in code so the
+ * outline model never spends output tokens hand-writing snippets. */
+function sourceSnippet(text: string | undefined): string {
+  const words = (text ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  return words.slice(0, 12).join(" ");
+}
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -99,16 +102,15 @@ Identify every distinct topic taught on these pages. Cover everything — do not
 
 For each topic provide:
 - "chapter": the chapter/module/lesson heading it belongs to (copy it from the material if present).
-- "title": a concise topic title.
+- "title": a concise topic title. If the material labels the section with its own number (e.g. "LESSON 8.36", "Exercise 5"), KEEP that number in the title (e.g. "Taxation of Resident Company (Lesson 8.36)") so students can find it by the number printed in their handouts.
 - "subtopics": ordered list of the smaller ideas inside the topic (3-8 where supported).
 - "summary": one sentence.
-- "examImportance": one sentence on why it matters for exams.
-- "sources": the page numbers it appears on, each with a short verbatim "snippet" (<= 12 words) from that page.
+- "sources": the page numbers it appears on.
 
 Also give "subject": the broad subject these pages belong to.
 
 Return ONLY this JSON:
-{"subject": string, "topics": [ {"chapter": string, "title": string, "subtopics": [string], "summary": string, "examImportance": string, "sources": [ {"page": number, "snippet": string} ] } ] }
+{"subject": string, "topics": [ {"chapter": string, "title": string, "subtopics": [string], "summary": string, "sources": [ {"page": number} ] } ] }
 
 <UNTRUSTED_MATERIAL>
 ${body}
@@ -276,6 +278,7 @@ function mergeBatches(
   fileName: string
 ): Pick<GeneratedOutline, "subjects" | "coverage"> {
   const validPages = new Set(pages.map((p) => p.page));
+  const pageText = new Map(pages.map((p) => [p.page, p.text]));
   const mappedPages = new Set<number>();
 
   // A single uploaded document is one subject; we group topics by module
@@ -313,7 +316,9 @@ function mergeBatches(
           return {
             file: fileName,
             page: s.page,
-            snippet: s.snippet.trim().slice(0, 200),
+            // Snippet is derived from the real page text (not model-written):
+            // accurate, and saves output tokens on every outline-map batch.
+            snippet: sourceSnippet(pageText.get(s.page)),
           };
         });
 
@@ -330,7 +335,6 @@ function mergeBatches(
           title: topicTitle,
           subtopics: t.subtopics.map((x) => x.trim()).filter(Boolean),
           summary: t.summary.trim(),
-          examImportance: t.examImportance.trim(),
           sources,
         });
       }

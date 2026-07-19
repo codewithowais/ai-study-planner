@@ -24,8 +24,6 @@ export interface Topic {
   subtopics: string[];
   /** One-line description of what the topic covers. */
   summary: string;
-  /** Why this matters for the exam. */
-  examImportance: string;
   /** Where in the uploaded material this topic is grounded. */
   sources: SourceRef[];
 }
