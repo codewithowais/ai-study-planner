@@ -81,6 +81,30 @@ npm run dev         # terminal 2 — the Next.js app on :3000
 Open http://localhost:3000, create your (single, local) account, and upload a
 PDF.
 
+## Signing in
+
+This is a **single-user, local** app. There is **no shared/default login** — and
+none is stored in this repo on purpose: passwords are hashed with bcrypt, and
+your account data lives only in `data/` (which is git-ignored), so a fresh clone
+starts empty.
+
+- **First run:** open http://localhost:3000/login and **register** — the first
+  sign-up creates your account (name, email, password). Your email is just a
+  local login; it is never sent anywhere.
+- **Returning:** sign in with the email + password you chose.
+- **Forgot your password?** Reset it locally — you type a new one, it is hashed
+  on your machine, nothing is shared:
+
+  ```bash
+  npm run reset-password           # resets the only account
+  npm run reset-password you@x.com # or target a specific email
+  ```
+
+  Then sign in with the new password.
+
+> Your credentials, study progress, chats, and uploaded PDFs never leave your
+> machine and are never committed to the repo.
+
 ## Run with Docker
 
 The **web app** runs in Docker; the **companion service stays on the host**
