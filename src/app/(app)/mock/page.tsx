@@ -22,12 +22,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/client";
 
+interface ExamSummary {
+  id: string;
+  name: string;
+  date: string;
+}
 interface CourseSummary {
   id: string;
   title: string;
   ready: boolean;
   error: string | null;
   topicCount: number;
+  exams?: ExamSummary[];
+}
+
+function nextExamId(course: CourseSummary | undefined): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const upcoming = (course?.exams ?? [])
+    .filter((e) => new Date(e.date + "T00:00:00").getTime() >= today.getTime())
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return upcoming[0]?.id ?? "full";
 }
 interface Question {
   id: string;
@@ -58,6 +73,7 @@ export default function MockExamPage() {
   const [phase, setPhase] = useState<Phase>("pick");
   const [error, setError] = useState<string | null>(null);
   const [courseId, setCourseId] = useState<string>("");
+  const [scope, setScope] = useState<string>("full");
   const [count, setCount] = useState(10);
   const [attemptId, setAttemptId] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -70,7 +86,10 @@ export default function MockExamPage() {
       .then((r) => {
         const ready = r.courses.filter((c) => c.ready && !c.error);
         setCourses(ready);
-        if (ready[0]) setCourseId(ready[0].id);
+        if (ready[0]) {
+          setCourseId(ready[0].id);
+          setScope(nextExamId(ready[0]));
+        }
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load courses."));
   }, []);
@@ -83,7 +102,7 @@ export default function MockExamPage() {
     try {
       const res = await api.post<{ attemptId: string; questions: Question[] }>(
         "/api/mock/generate",
-        { courseId, count }
+        { courseId, count, examId: scope === "full" ? undefined : scope }
       );
       setAttemptId(res.attemptId);
       setQuestions(res.questions);
@@ -313,7 +332,14 @@ export default function MockExamPage() {
           <CardContent className="space-y-6 p-6">
             <div className="space-y-2">
               <Label>Course</Label>
-              <RadioGroup value={courseId} onValueChange={setCourseId} className="space-y-2">
+              <RadioGroup
+                value={courseId}
+                onValueChange={(id) => {
+                  setCourseId(id);
+                  setScope(nextExamId(courses?.find((c) => c.id === id)));
+                }}
+                className="space-y-2"
+              >
                 {courses.map((c) => (
                   <Label
                     key={c.id}
@@ -329,6 +355,44 @@ export default function MockExamPage() {
                 ))}
               </RadioGroup>
             </div>
+            {(() => {
+              const selected = courses.find((c) => c.id === courseId);
+              const exams = selected?.exams ?? [];
+              if (exams.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <Label>Exam scope</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {[...exams]
+                      .sort((a, b) => a.date.localeCompare(b.date))
+                      .map((e) => (
+                        <Button
+                          key={e.id}
+                          type="button"
+                          variant={scope === e.id ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setScope(e.id)}
+                        >
+                          {e.name}
+                          {scope === e.id && nextExamId(selected) === e.id ? " · next" : ""}
+                        </Button>
+                      ))}
+                    <Button
+                      type="button"
+                      variant={scope === "full" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setScope("full")}
+                    >
+                      Full course
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Questions come only from what that exam covers — practice the way
+                    you&apos;ll be tested.
+                  </p>
+                </div>
+              );
+            })()}
             <div className="space-y-2">
               <Label>Number of questions</Label>
               <div className="flex gap-2">

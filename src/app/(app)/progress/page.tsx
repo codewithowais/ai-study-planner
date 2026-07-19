@@ -9,7 +9,9 @@ import {
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { getProgress, listActiveCourses } from "@/lib/store/repositories";
-import { computeCourseStats, type CourseStats } from "@/lib/progress-stats";
+import { computeCourseStats, scopedReadiness, type CourseStats } from "@/lib/progress-stats";
+import { examTopicIds } from "@/lib/exams";
+import { daysLeftUntil, prettyDate } from "@/lib/plan-dates";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
@@ -110,6 +112,39 @@ function CourseProgress({ course, stats }: { course: Course; stats: CourseStats 
             <Progress value={stats.readinessPct} className="h-2" />
           </div>
         </div>
+
+        {/* Per-exam readiness — "am I ready for the exam I actually have?" */}
+        {(course.exams ?? []).length > 0 && (
+          <div className="mt-5 space-y-3 rounded-lg border border-primary/20 bg-accent/30 p-4">
+            {[...(course.exams ?? [])]
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((exam) => {
+                const ids = new Set(examTopicIds(course, exam));
+                const r = scopedReadiness(stats.allTopics, ids);
+                const left = daysLeftUntil(exam.date);
+                return (
+                  <div key={exam.id}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium">
+                        {exam.name}
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          {left < 0
+                            ? `passed (${prettyDate(exam.date)})`
+                            : left === 0
+                              ? "today!"
+                              : `in ${left} day${left === 1 ? "" : "s"}`}
+                          {" · "}
+                          {r.done}/{r.total} topics done
+                        </span>
+                      </span>
+                      <span className="font-medium">{r.readinessPct}% ready</span>
+                    </div>
+                    <Progress value={r.readinessPct} className="h-2" />
+                  </div>
+                );
+              })}
+          </div>
+        )}
 
         {/* Status breakdown */}
         <div className="mt-5 flex flex-wrap gap-2">

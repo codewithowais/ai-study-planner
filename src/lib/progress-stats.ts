@@ -34,6 +34,24 @@ const WEIGHT: Record<TopicStatus, number> = {
   mastered: 1,
 };
 
+/** Readiness % over a subset of topics (e.g. one exam's coverage). */
+export function scopedReadiness(
+  allTopics: TopicRef[],
+  topicIds: Set<string>
+): { readinessPct: number; done: number; total: number } {
+  const scoped = allTopics.filter((t) => topicIds.has(t.id));
+  const total = scoped.length;
+  const weightSum = scoped.reduce((sum, t) => sum + WEIGHT[t.status], 0);
+  const done = scoped.filter(
+    (t) => t.status === "completed" || t.status === "mastered"
+  ).length;
+  return {
+    readinessPct: total ? Math.round((weightSum / total) * 100) : 0,
+    done,
+    total,
+  };
+}
+
 export function computeCourseStats(
   course: Course,
   progress: CourseProgress | null

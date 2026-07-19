@@ -63,6 +63,22 @@ export interface Term {
   createdAt: string;
 }
 
+/**
+ * An exam the student is preparing for (e.g. Midterm / Final). Coverage is a
+ * set of chapter ids — everything else (pacing, mock scope, readiness) derives
+ * from it. Entirely optional: courses without exams behave as before.
+ */
+export interface CourseExam {
+  id: string;
+  name: string;
+  /** ISO date (YYYY-MM-DD) of the exam. */
+  date: string;
+  /** Chapters this exam covers. */
+  chapterIds: string[];
+  /** Mocks mix in ~this share of earlier (pre-coverage) topics (0–0.5). */
+  includeEarlierShare?: number;
+}
+
 export interface Course {
   id: string;
   userId: string;
@@ -77,6 +93,8 @@ export interface Course {
   archived?: boolean;
   /** Optional "finish by" date (ISO YYYY-MM-DD) — paces the daily study plan. */
   planTargetDate?: string | null;
+  /** Optional exams (midterm/final) that scope pacing, mocks, and readiness. */
+  exams?: CourseExam[];
   createdAt: string;
   /** Set false while generation is running, true when outline is ready. */
   ready: boolean;
@@ -159,6 +177,24 @@ export interface CourseProgress {
   lastTopicId?: string;
   updatedAt: string;
   mockAttempts: QuizAttempt[];
+}
+
+export interface TutorChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+/** Durable, provider-independent tutor history for one course topic. */
+export interface TutorChat {
+  userId: string;
+  courseId: string;
+  topicId: string;
+  messages: TutorChatMessage[];
+  compactMemory: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OnboardingProfile {

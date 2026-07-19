@@ -29,6 +29,16 @@ export interface StudyPlan {
   doneToday: number;
   /** perDay (the goal) — alias for clarity in the UI. */
   goalToday: number;
+  /** The very next exam across all courses (what today is really about). */
+  focusExam: { name: string; courseTitle: string; daysLeft: number } | null;
+}
+
+export interface PlanExam {
+  name: string;
+  /** ISO date (YYYY-MM-DD). */
+  date: string;
+  /** Topic ids the exam covers. */
+  topicIds: string[];
 }
 
 export interface PlanCourse {
@@ -37,6 +47,8 @@ export interface PlanCourse {
   stats: CourseStats;
   /** Per-course "finish by" date (ISO). */
   targetDate?: string | null;
+  /** Exams (midterm/final): the nearest upcoming one scopes & paces the course. */
+  exams?: PlanExam[];
 }
 
 const NOT_DONE = new Set(["not_started", "learning", "weak"]);
@@ -62,24 +74,46 @@ export function buildStudyPlan(
   let doneToday = 0;
   let soonestDays: number | null = null;
   let paced = false;
+  let focusExam: StudyPlan["focusExam"] = null;
 
   // Per-course: how many topics to do today + a prioritised candidate list.
   const perCourse = courses.map((c) => {
-    const notDone = c.stats.allTopics.filter((t) => NOT_DONE.has(t.status));
-    remaining += notDone.length;
     for (const t of c.stats.allTopics) {
       if (DONE.has(t.status) && t.lastVisited && localDateKey(new Date(t.lastVisited)) === todayKey) {
         doneToday++;
       }
     }
 
-    const date = c.targetDate ?? opts.examDate ?? null;
+    // Exam-first: the nearest upcoming exam scopes the course to its coverage
+    // and paces to its date. Without exams, fall back to the plan/global date.
+    // Exams whose coverage no longer resolves to any topics (stale chapter ids
+    // after an outline change) are skipped — an empty coverage set would
+    // otherwise block every topic and tell the student there's nothing to do.
+    const upcoming = (c.exams ?? [])
+      .map((e) => ({ ...e, days: daysUntil(e.date, todayKey) }))
+      .filter((e) => e.days >= 0 && e.topicIds.length > 0)
+      .sort((a, b) => a.days - b.days)[0];
+
+    const coverage = upcoming ? new Set(upcoming.topicIds) : null;
+    const inScope = (t: TopicRef) => !coverage || coverage.has(t.id);
+
+    const notDone = c.stats.allTopics.filter(
+      (t) => NOT_DONE.has(t.status) && inScope(t)
+    );
+    remaining += c.stats.allTopics.filter((t) => NOT_DONE.has(t.status)).length;
+
+    const date = upcoming ? upcoming.date : (c.targetDate ?? opts.examDate ?? null);
     let req = Math.min(notDone.length, DEFAULT_PER_COURSE);
     if (date) {
       const d = daysUntil(date, todayKey);
       if (d >= 0) {
         paced = true;
-        if (c.targetDate) soonestDays = soonestDays === null ? d : Math.min(soonestDays, d);
+        if (upcoming || c.targetDate) {
+          soonestDays = soonestDays === null ? d : Math.min(soonestDays, d);
+        }
+        if (upcoming && (focusExam === null || d < focusExam.daysLeft)) {
+          focusExam = { name: upcoming.name, courseTitle: c.courseTitle, daysLeft: d };
+        }
         req =
           notDone.length === 0
             ? 0
@@ -89,11 +123,12 @@ export function buildStudyPlan(
       }
     }
 
-    // Candidate topics in priority order: due reviews → weak → continue → new.
+    // Candidate topics in priority order: due reviews → weak → continue → new
+    // (all restricted to the upcoming exam's coverage when one exists).
     const seen = new Set<string>();
     const candidates: TopicRef[] = [];
     const add = (t?: TopicRef) => {
-      if (t && !seen.has(t.id)) {
+      if (t && !seen.has(t.id) && inScope(t)) {
         seen.add(t.id);
         candidates.push(t);
       }
@@ -149,6 +184,7 @@ export function buildStudyPlan(
     session,
     doneToday,
     goalToday,
+    focusExam,
   };
 }
 

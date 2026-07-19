@@ -33,6 +33,7 @@ export const GET = handle(async (req: Request) => {
       archived: !!c.archived,
       active,
       planTargetDate: c.planTargetDate ?? null,
+      exams: (c.exams ?? []).map((e) => ({ id: e.id, name: e.name, date: e.date })),
     })),
   });
 });

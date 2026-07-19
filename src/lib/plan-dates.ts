@@ -32,6 +32,7 @@ export function prettyDate(dateStr: string): string {
 
 /** Topics/day needed to finish `remaining` in `days` (clamped to a sane range). */
 export function perDayFor(remaining: number, days: number): number {
+  if (remaining <= 0) return 0; // nothing left — never suggest "1/day"
   if (days <= 0) return Math.min(remaining, 10);
   return Math.min(10, Math.max(1, Math.ceil(remaining / days)));
 }

@@ -19,6 +19,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { getProgress, listCoursesWithTerms } from "@/lib/store/repositories";
 import { computeCourseStats } from "@/lib/progress-stats";
 import { buildStudyPlan, PLAN_KIND_LABEL, type PlanKind } from "@/lib/study-plan";
+import { examTopicIds, nearestUpcomingExam } from "@/lib/exams";
+import { daysLeftUntil } from "@/lib/plan-dates";
 import { computeStreak } from "@/lib/streak";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
@@ -58,6 +60,11 @@ export default async function DashboardPage() {
       courseTitle: i.course.title,
       stats: i.stats!,
       targetDate: i.course.planTargetDate,
+      exams: (i.course.exams ?? []).map((e) => ({
+        name: e.name,
+        date: e.date,
+        topicIds: examTopicIds(i.course, e),
+      })),
     })),
     { examDate: user?.onboarding.examDate }
   );
@@ -122,15 +129,19 @@ export default async function DashboardPage() {
                   Today&apos;s session
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {plan.paced
-                    ? plan.soonestDays === 0
-                      ? "A target is due today — here's a final push."
-                      : `Aim for ${plan.perDay} topic${plan.perDay === 1 ? "" : "s"}/day to finish on time${plan.soonestDays !== null ? ` · next target in ${plan.soonestDays} day${plan.soonestDays === 1 ? "" : "s"}` : ""}.`
-                    : `Your daily goal: ${plan.perDay} topic${plan.perDay === 1 ? "" : "s"}. ${plan.remaining} left to master.`}
+                  {plan.focusExam
+                    ? plan.focusExam.daysLeft === 0
+                      ? `${plan.focusExam.name} is TODAY (${plan.focusExam.courseTitle}) — final revision below.`
+                      : `Preparing for ${plan.focusExam.name} · ${plan.focusExam.daysLeft} day${plan.focusExam.daysLeft === 1 ? "" : "s"} left · aim for ${plan.perDay} topic${plan.perDay === 1 ? "" : "s"}/day.`
+                    : plan.paced
+                      ? plan.soonestDays === 0
+                        ? "A target is due today — here's a final push."
+                        : `Aim for ${plan.perDay} topic${plan.perDay === 1 ? "" : "s"}/day to finish on time${plan.soonestDays !== null ? ` · next target in ${plan.soonestDays} day${plan.soonestDays === 1 ? "" : "s"}` : ""}.`
+                      : `Your daily goal: ${plan.perDay} topic${plan.perDay === 1 ? "" : "s"}. ${plan.remaining} left to master.`}
                 </p>
                 {!plan.paced && (
                   <p className="mt-1 text-xs text-muted-foreground/80">
-                    Want a deadline? Open a course → “Set a study plan” to pick how many days.
+                    Tip: open a course and “Add exam” — sessions will pace themselves to it.
                   </p>
                 )}
               </div>
@@ -254,12 +265,30 @@ export default async function DashboardPage() {
                         </div>
                       </div>
                       <div className="mt-3">
-                        <CoursePlanButton
-                          courseId={course.id}
-                          courseTitle={course.title}
-                          initialTargetDate={course.planTargetDate}
-                          remaining={Math.max(0, stats.total - stats.completedOrMastered)}
-                        />
+                        {(() => {
+                          const nextExam = nearestUpcomingExam(course.exams);
+                          if (nextExam) {
+                            const d = daysLeftUntil(nextExam.date);
+                            return (
+                              <Link
+                                href={`/courses/${course.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary ring-1 ring-primary/20 transition hover:bg-primary/15"
+                                title={`${nextExam.name} — tap to view or edit`}
+                              >
+                                <CalendarClock className="h-3.5 w-3.5" />
+                                {nextExam.name} · {d === 0 ? "today!" : `${d}d left`}
+                              </Link>
+                            );
+                          }
+                          return (
+                            <CoursePlanButton
+                              courseId={course.id}
+                              courseTitle={course.title}
+                              initialTargetDate={course.planTargetDate}
+                              remaining={Math.max(0, stats.total - stats.completedOrMastered)}
+                            />
+                          );
+                        })()}
                       </div>
                       <div className="mt-auto flex gap-2 pt-4">
                         <Button asChild size="sm" className="flex-1">

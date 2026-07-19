@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { CoursePlan } from "@/components/course-plan";
+import { CourseExams } from "@/components/course-exams";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -259,11 +260,27 @@ function OutlineView({
         }
       />
 
-      <CoursePlan
+      <CourseExams
         courseId={course.id}
-        initialTargetDate={course.planTargetDate}
-        remaining={Math.max(0, total - done)}
+        chapters={course.subjects.flatMap((s) =>
+          s.chapters.map((c) => ({
+            id: c.id,
+            title: c.title,
+            topicCount: c.topics.length,
+          }))
+        )}
+        exams={course.exams ?? []}
+        onSaved={onReload}
       />
+
+      {/* With exams set, pacing follows the exams — no separate plan date needed. */}
+      {(course.exams ?? []).length === 0 && (
+        <CoursePlan
+          courseId={course.id}
+          initialTargetDate={course.planTargetDate}
+          remaining={Math.max(0, total - done)}
+        />
+      )}
 
       {/* Stats row */}
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
