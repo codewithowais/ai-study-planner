@@ -4,8 +4,8 @@
     {
       "name": "dev",
       "runtimeExecutable": "/Users/codewithowais/Downloads/amna/.toolchain/bin/npx",
-      "runtimeArgs": ["next", "dev", "-p", "3005"],
-      "port": 3005
+      "runtimeArgs": ["next", "dev"],
+      "autoPort": true
     }
   ]
 }
