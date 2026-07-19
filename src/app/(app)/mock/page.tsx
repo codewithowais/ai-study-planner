@@ -6,21 +6,17 @@ import {
   Loader2,
   ClipboardList,
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
   RefreshCw,
   Upload,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
-import { SourceDrawer } from "@/components/source-drawer";
+import { MockReview } from "@/components/mock-review";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/client";
 
 interface ExamSummary {
@@ -80,7 +76,6 @@ export default function MockExamPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<SubmitResp | null>(null);
-  const [sourcePage, setSourcePage] = useState<number | null>(null);
 
   useEffect(() => {
     api
@@ -165,95 +160,25 @@ export default function MockExamPage() {
   }
 
   if (phase === "done" && result) {
-    const pass = result.score >= 60;
     return (
       <div className="mx-auto max-w-3xl">
-        <SourceDrawer courseId={courseId} page={sourcePage} onClose={() => setSourcePage(null)} />
-        <Card className="mb-6 overflow-hidden">
-          <div
-            className={cn(
-              "flex flex-col items-center gap-2 p-8 text-center",
-              pass ? "bg-success/10" : "bg-warning/10"
-            )}
-          >
-            <div className="text-5xl font-bold">{result.score}%</div>
-            <p className="text-sm text-muted-foreground">
-              {result.correctCount} of {result.total} correct
-            </p>
-            <Badge variant={pass ? "success" : "warning"} className="mt-1">
-              {pass ? "Passed" : "Keep practicing"}
-            </Badge>
-          </div>
-        </Card>
-        <h2 className="mb-3 text-lg font-semibold">Review</h2>
-        <div className="space-y-4">
-          {result.results.map((q, i) => (
-            <Card
-              key={q.id}
-              className={cn("border-l-4", q.correct ? "border-l-success" : "border-l-destructive")}
-            >
-              <CardContent className="p-5">
-                <div className="mb-3 flex items-start gap-2">
-                  {q.correct ? (
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" />
-                  ) : (
-                    <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-                  )}
-                  <p className="font-medium">
-                    <span className="mr-2 text-muted-foreground">{i + 1}.</span>
-                    {q.prompt}
-                  </p>
-                </div>
-                <div className="space-y-1.5">
-                  {q.choices.map((c, ci) => {
-                    const isCorrect = ci === q.correctIndex;
-                    const isChosen = ci === q.selectedIndex;
-                    return (
-                      <div
-                        key={ci}
-                        className={cn(
-                          "flex items-center gap-2 rounded-md border px-3 py-2 text-sm",
-                          isCorrect && "border-success/50 bg-success/10",
-                          isChosen && !isCorrect && "border-destructive/50 bg-destructive/10",
-                          !isCorrect && !isChosen && "border-transparent"
-                        )}
-                      >
-                        <span className="flex-1">{c}</span>
-                        {isCorrect && <span className="text-xs font-medium text-success">Correct</span>}
-                        {isChosen && !isCorrect && (
-                          <span className="text-xs font-medium text-destructive">Your answer</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {q.explanation && (
-                  <p className="mt-3 rounded-md bg-secondary/60 p-3 text-sm">
-                    <span className="font-medium">Why: </span>
-                    {q.explanation}
-                    {q.source && (
-                      <button
-                        onClick={() => setSourcePage(q.source!.page)}
-                        className="ml-1 rounded bg-background/70 px-1.5 py-0.5 text-xs font-medium text-primary transition hover:bg-accent"
-                        title="View this page from your material"
-                      >
-                        p.{q.source.page}
-                      </button>
-                    )}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <div className="mt-8 flex justify-center gap-2 border-t border-border pt-6">
-          <Button variant="outline" onClick={() => setPhase("pick")}>
-            New mock exam
-          </Button>
-          <Button asChild>
-            <Link href="/progress">View progress</Link>
-          </Button>
-        </div>
+        <MockReview
+          courseId={courseId}
+          score={result.score}
+          correctCount={result.correctCount}
+          total={result.total}
+          results={result.results}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => setPhase("pick")}>
+                New mock exam
+              </Button>
+              <Button asChild>
+                <Link href="/progress">View progress</Link>
+              </Button>
+            </>
+          }
+        />
       </div>
     );
   }

@@ -6,6 +6,7 @@ import {
   RotateCcw,
   ClipboardList,
   CheckCircle2,
+  ChevronRight,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
 import { getProgress, listActiveCourses } from "@/lib/store/repositories";
@@ -256,20 +257,27 @@ function CourseProgress({
                 .map((a) => {
                   const correct = a.answers.filter((x) => x.correct).length;
                   return (
-                    <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="text-muted-foreground">
-                        {prettyDate(a.takenAt.slice(0, 10))}
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {correct}/{a.questions.length}
+                    <li key={a.id}>
+                      <Link
+                        href={`/mock/review/${course.id}/${a.id}`}
+                        className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-accent"
+                        title="Reopen this mock's full review"
+                      >
+                        <span className="text-muted-foreground">
+                          {prettyDate(a.takenAt.slice(0, 10))}
                         </span>
-                        <span
-                          className={`font-semibold ${a.score >= 60 ? "text-success" : "text-warning"}`}
-                        >
-                          {a.score}%
+                        <span className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {correct}/{a.questions.length}
+                          </span>
+                          <span
+                            className={`font-semibold ${a.score >= 60 ? "text-success" : "text-warning"}`}
+                          >
+                            {a.score}%
+                          </span>
+                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                         </span>
-                      </span>
+                      </Link>
                     </li>
                   );
                 })}
