@@ -66,6 +66,11 @@ test("cache envelopes return values only for an exact current fingerprint", () =
   assert.deepEqual(readGeneratedCache({ intro: "legacy cache" }, fingerprint), {
     intro: "legacy cache",
   });
+  // ...unless the caller opts out (output contract changed): legacy is a miss.
+  assert.equal(
+    readGeneratedCache({ intro: "legacy cache" }, fingerprint, false),
+    null
+  );
 });
 
 test("a cache hit is served without generating or saving", async () => {

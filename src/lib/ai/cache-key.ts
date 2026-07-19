@@ -36,16 +36,19 @@ export function createGeneratedCache<T>(
 
 export function readGeneratedCache<T>(
   raw: unknown,
-  fingerprint: string
+  fingerprint: string,
+  acceptLegacy = true
 ): T | null {
   if (!raw || typeof raw !== "object") return null;
   const cache = raw as Partial<GeneratedCache<T>>;
   // Legacy cache files predate the envelope (bare payloads with no version /
-  // fingerprint). They were valid generated content — keep serving them
-  // instead of silently re-billing the student's whole library. They get
-  // re-enveloped on the next regenerate.
+  // fingerprint). By default they are still served — re-billing a whole
+  // library on an unrelated deploy is wasteful. But callers whose OUTPUT
+  // contract changed (e.g. lessons after a teaching-quality/coverage upgrade)
+  // pass acceptLegacy=false so old content is treated as a miss and lazily
+  // regenerated to the new standard the next time the topic is opened.
   if (!("version" in cache) && !("fingerprint" in cache)) {
-    return raw as T;
+    return acceptLegacy ? (raw as T) : null;
   }
   if (cache.version !== 1 || cache.fingerprint !== fingerprint || !("value" in cache)) {
     return null;
@@ -67,6 +70,12 @@ export interface GetOrGenerateCachedInput<T> {
   generate: () => Promise<T>;
   /** Optional extra staleness check on a cache hit (hit is discarded if true). */
   isStale?: (value: T) => boolean;
+  /**
+   * Whether to serve pre-envelope legacy caches (default true). Set false when
+   * the output contract has changed and old content should be regenerated to
+   * the new standard on next access.
+   */
+  acceptLegacy?: boolean;
 }
 
 /**
@@ -84,9 +93,10 @@ export async function getOrGenerateCached<T>({
   save,
   generate,
   isStale,
+  acceptLegacy = true,
 }: GetOrGenerateCachedInput<T>): Promise<T> {
   const fingerprint = buildGenerationFingerprint(fingerprintInput);
-  const cached = readGeneratedCache<T>(await read(), fingerprint);
+  const cached = readGeneratedCache<T>(await read(), fingerprint, acceptLegacy);
   if (cached !== null && !isStale?.(cached)) return cached;
 
   // The lock covers generate AND save: if it released after generate alone, a
