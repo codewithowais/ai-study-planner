@@ -52,6 +52,9 @@ export const POST = handle(async (req: Request) => {
         { provider: user.settings.provider, model: user.settings.model }
       );
     },
+    // Old cached summaries predate the plain-spoken v3 standard — regenerate
+    // to the current standard on next open (bare payloads aren't served).
+    acceptLegacy: false,
   });
 
   return ok({ summary });
