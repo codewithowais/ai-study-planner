@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --test companion/*.test.mjs src/lib/ai/*.test.ts src/lib/ingest/*.test.ts src/lib/quiz/*.test.ts src/lib/teach/*.test.ts",
+    "test": "node --experimental-strip-types --test companion/*.test.mjs src/lib/*.test.ts src/lib/ai/*.test.ts src/lib/ingest/*.test.ts src/lib/quiz/*.test.ts src/lib/teach/*.test.ts",
     "companion": "node companion/server.mjs",
     "reset-password": "node scripts/reset-password.mjs",
     "dev:all": "node scripts/dev-all.mjs"

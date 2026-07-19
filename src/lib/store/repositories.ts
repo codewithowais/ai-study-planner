@@ -286,6 +286,21 @@ export async function getFlashcards<T>(
   return readJson<T | null>(`flashcards/${courseId}_${topicId}.json`, null);
 }
 
+export async function getPlanCoach<T>(
+  courseId: string,
+  examId: string
+): Promise<T | null> {
+  return readJson<T | null>(`plan-coach/${courseId}_${examId}.json`, null);
+}
+
+export async function savePlanCoach<T>(
+  courseId: string,
+  examId: string,
+  note: T
+): Promise<void> {
+  await writeJson<T>(`plan-coach/${courseId}_${examId}.json`, note);
+}
+
 export async function saveFlashcards<T>(
   courseId: string,
   topicId: string,
