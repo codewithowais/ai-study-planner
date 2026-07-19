@@ -82,11 +82,7 @@ export default function QuizPage() {
     }
   }, [courseId, topicId]);
 
-  useEffect(() => {
-    generate();
-  }, [generate]);
-
-  async function redo() {
+  const redo = useCallback(async () => {
     setPhase("loading");
     setError(null);
     setAnswers({});
@@ -100,7 +96,17 @@ export default function QuizPage() {
       setError(err instanceof ApiError ? err.message : "Failed to load your missed questions.");
       setPhase("error");
     }
-  }
+  }, [courseId, topicId]);
+
+  // On open, honour ?redo=1 (from Progress/Revision "Redo missed") — re-serve
+  // the exact questions missed last time; otherwise generate a fresh quiz.
+  useEffect(() => {
+    const wantRedo =
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("redo") === "1";
+    if (wantRedo) redo();
+    else generate();
+  }, [generate, redo]);
 
   async function submit() {
     if (!quiz) return;

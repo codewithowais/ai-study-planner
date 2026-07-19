@@ -18,7 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
-import type { Course } from "@/lib/types";
+import { Sparkline } from "@/components/sparkline";
+import type { Course, QuizAttempt } from "@/lib/types";
 
 export default async function ProgressPage() {
   const user = await getCurrentUser();
@@ -26,10 +27,14 @@ export default async function ProgressPage() {
   const ready = courses.filter((c) => c.ready && !c.error);
 
   const items = await Promise.all(
-    ready.map(async (c) => ({
-      course: c,
-      stats: computeCourseStats(c, await getProgress(c.id)),
-    }))
+    ready.map(async (c) => {
+      const progress = await getProgress(c.id);
+      return {
+        course: c,
+        stats: computeCourseStats(c, progress),
+        mockAttempts: progress?.mockAttempts ?? [],
+      };
+    })
   );
 
   return (
@@ -55,8 +60,13 @@ export default async function ProgressPage() {
         />
       ) : (
         <div className="space-y-6">
-          {items.map(({ course, stats }) => (
-            <CourseProgress key={course.id} course={course} stats={stats} />
+          {items.map(({ course, stats, mockAttempts }) => (
+            <CourseProgress
+              key={course.id}
+              course={course}
+              stats={stats}
+              mockAttempts={mockAttempts}
+            />
           ))}
         </div>
       )}
@@ -71,7 +81,15 @@ const READINESS_COLOR: Record<CourseStats["readinessLabel"], string> = {
   "Exam ready": "text-success",
 };
 
-function CourseProgress({ course, stats }: { course: Course; stats: CourseStats }) {
+function CourseProgress({
+  course,
+  stats,
+  mockAttempts,
+}: {
+  course: Course;
+  stats: CourseStats;
+  mockAttempts: QuizAttempt[];
+}) {
   return (
     <Card>
       <CardContent className="p-6">
@@ -170,9 +188,12 @@ function CourseProgress({ course, stats }: { course: Course; stats: CourseStats 
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{t.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t.chapterTitle}
-                      {t.lastScore !== null ? ` · last score ${t.lastScore}%` : ""}
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="truncate">
+                        {t.chapterTitle}
+                        {t.lastScore !== null ? ` · last score ${t.lastScore}%` : ""}
+                      </span>
+                      {t.scores.length > 1 && <Sparkline values={t.scores} />}
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1.5">
@@ -182,6 +203,14 @@ function CourseProgress({ course, stats }: { course: Course; stats: CourseStats 
                         Re-learn
                       </Link>
                     </Button>
+                    {t.wrongCount > 0 && (
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/quiz/${course.id}/${t.id}?redo=1`}>
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Redo {t.wrongCount}
+                        </Link>
+                      </Button>
+                    )}
                     <Button asChild size="sm" variant="secondary">
                       <Link href={`/quiz/${course.id}/${t.id}`}>
                         <ClipboardList className="h-3.5 w-3.5" />
@@ -207,6 +236,46 @@ function CourseProgress({ course, stats }: { course: Course; stats: CourseStats 
             No weak topics right now — keep it up!
           </p>
         ) : null}
+
+        {/* Past mock exams — attempts are stored but were never surfaced */}
+        {mockAttempts.length > 0 && (
+          <div className="mt-6 rounded-lg border border-border bg-background/50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <ClipboardList className="h-4 w-4 text-primary" />
+                Past mock exams
+              </p>
+              {mockAttempts.length > 1 && (
+                <Sparkline values={mockAttempts.map((a) => a.score)} />
+              )}
+            </div>
+            <ul className="space-y-1.5">
+              {[...mockAttempts]
+                .reverse()
+                .slice(0, 6)
+                .map((a) => {
+                  const correct = a.answers.filter((x) => x.correct).length;
+                  return (
+                    <li key={a.id} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-muted-foreground">
+                        {prettyDate(a.takenAt.slice(0, 10))}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {correct}/{a.questions.length}
+                        </span>
+                        <span
+                          className={`font-semibold ${a.score >= 60 ? "text-success" : "text-warning"}`}
+                        >
+                          {a.score}%
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

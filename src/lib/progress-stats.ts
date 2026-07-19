@@ -6,6 +6,10 @@ export interface TopicRef {
   chapterTitle: string;
   status: TopicStatus;
   lastScore: number | null;
+  /** Full quiz score history (oldest → newest), for a trend sparkline. */
+  scores: number[];
+  /** How many questions were missed last time (for a "redo missed" action). */
+  wrongCount: number;
   /** ISO timestamp the topic was last opened (for "done today" tallies). */
   lastVisited?: string;
 }
@@ -84,6 +88,11 @@ export function computeCourseStats(
           lastScore: entry?.scores?.length
             ? entry.scores[entry.scores.length - 1]
             : null,
+          scores: entry?.scores ?? [],
+          wrongCount:
+            entry?.lastWrongPrompts?.length ??
+            entry?.lastWrongQuestions?.length ??
+            0,
           lastVisited: entry?.lastVisited,
         };
         allTopics.push(ref);

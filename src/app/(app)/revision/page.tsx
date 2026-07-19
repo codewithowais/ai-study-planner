@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Sparkline } from "@/components/sparkline";
 
 type Row = { courseId: string; courseTitle: string; topic: TopicRef };
 
@@ -127,9 +128,12 @@ function RevisionRow({
       <CardContent className="flex items-center justify-between gap-3 p-4">
         <div className="min-w-0">
           <p className="truncate font-medium">{topic.title}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {courseTitle} · {topic.chapterTitle}
-            {topic.lastScore !== null ? ` · last score ${topic.lastScore}%` : ""}
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">
+              {courseTitle} · {topic.chapterTitle}
+              {topic.lastScore !== null ? ` · last score ${topic.lastScore}%` : ""}
+            </span>
+            {topic.scores.length > 1 && <Sparkline values={topic.scores} />}
           </p>
         </div>
         <div className="flex shrink-0 gap-1.5">
@@ -139,6 +143,14 @@ function RevisionRow({
               Re-learn
             </Link>
           </Button>
+          {topic.wrongCount > 0 && (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/quiz/${courseId}/${topic.id}?redo=1`}>
+                <RotateCcw className="h-3.5 w-3.5" />
+                Redo {topic.wrongCount}
+              </Link>
+            </Button>
+          )}
           <Button asChild size="sm">
             <Link href={`/quiz/${courseId}/${topic.id}`}>
               <ClipboardList className="h-3.5 w-3.5" />
