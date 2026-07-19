@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import { api } from "@/lib/client";
 
@@ -18,21 +18,32 @@ export function PlanCoachNote({
 }) {
   const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Only the latest in-flight request may apply its result — switching exam or
+  // intensity mid-fetch must not be clobbered by a slower earlier response.
+  const reqRef = useRef(0);
 
-  function load(regenerate = false) {
-    setLoading(true);
-    api
-      .post<{ note: string }>("/api/plan/coach", { courseId, examId, intensity, regenerate })
-      .then((r) => setNote(r.note))
-      .catch(() => setNote(null))
-      .finally(() => setLoading(false));
-  }
+  const load = useCallback(
+    (regenerate = false) => {
+      const myReq = ++reqRef.current;
+      setLoading(true);
+      api
+        .post<{ note: string }>("/api/plan/coach", { courseId, examId, intensity, regenerate })
+        .then((r) => {
+          if (myReq === reqRef.current) setNote(r.note);
+        })
+        .catch(() => {
+          if (myReq === reqRef.current) setNote(null);
+        })
+        .finally(() => {
+          if (myReq === reqRef.current) setLoading(false);
+        });
+    },
+    [courseId, examId, intensity]
+  );
 
   useEffect(() => {
     load();
-    // Re-fetch when the focus exam or intensity changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, examId, intensity]);
+  }, [load]);
 
   return (
     <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.07] to-accent/40 p-5">

@@ -78,14 +78,21 @@ export default function MockExamPage() {
   const [result, setResult] = useState<SubmitResp | null>(null);
 
   useEffect(() => {
+    // The planner's "Take a mock" links pass ?course=&exam= so we open the
+    // right scope; otherwise default to the first ready course + nearest exam.
+    const params = new URLSearchParams(window.location.search);
+    const wantCourse = params.get("course");
+    const wantExam = params.get("exam");
     api
       .get<{ courses: CourseSummary[] }>("/api/courses?active=1")
       .then((r) => {
         const ready = r.courses.filter((c) => c.ready && !c.error);
         setCourses(ready);
-        if (ready[0]) {
-          setCourseId(ready[0].id);
-          setScope(nextExamId(ready[0]));
+        const picked = (wantCourse && ready.find((c) => c.id === wantCourse)) || ready[0];
+        if (picked) {
+          setCourseId(picked.id);
+          const examOk = !!wantExam && (picked.exams ?? []).some((e) => e.id === wantExam);
+          setScope(examOk ? wantExam : nextExamId(picked));
         }
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Failed to load courses."));

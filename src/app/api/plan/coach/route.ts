@@ -8,6 +8,7 @@ import {
   savePlanCoach,
 } from "@/lib/store/repositories";
 import { computeCourseStats } from "@/lib/progress-stats";
+import { examTopicIds } from "@/lib/exams";
 import { buildExamPlan } from "@/lib/planner";
 import { getOrGenerateCached } from "@/lib/ai/cache-key";
 import {
@@ -38,6 +39,12 @@ export const POST = handle(async (req: Request) => {
   const stats = computeCourseStats(course, await getProgress(courseId));
   const plan = buildExamPlan(course, stats, exam, { intensity });
 
+  // Weak topics scoped to THIS exam's coverage — stats.weakTopics is
+  // course-wide, so an unscoped count would cite weak spots the exam doesn't
+  // even cover.
+  const scopeIds = new Set(examTopicIds(course, exam));
+  const weakCount = stats.weakTopics.filter((t) => scopeIds.has(t.id)).length;
+
   // Coarse buckets so the note refreshes on a MATERIAL change (crossed a
   // readiness band, entered the final week, pace shifted) — not on every open.
   const readinessBucket = Math.round(plan.readinessPct / 10);
@@ -55,6 +62,10 @@ export const POST = handle(async (req: Request) => {
       readinessBucket,
       daysBucket,
       pace: plan.pace,
+      // Intensity changes perDay (which the note quotes) without changing pace,
+      // so it must key the cache — else toggling it shows a stale note that
+      // contradicts the command center.
+      intensity: intensity ?? "steady",
     },
     read: () => (regenerate ? null : getPlanCoach<unknown>(courseId, examId)),
     save: (cache) => savePlanCoach(courseId, examId, cache),
@@ -69,7 +80,7 @@ export const POST = handle(async (req: Request) => {
           readinessPct: plan.readinessPct,
           perDay: plan.perDay,
           pace: plan.pace,
-          weakCount: stats.weakTopics.length,
+          weakCount,
         },
         { provider: user.settings.provider, model: user.settings.model }
       ),

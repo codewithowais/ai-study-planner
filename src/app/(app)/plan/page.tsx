@@ -55,12 +55,55 @@ const INTENSITIES: { id: Intensity; label: string }[] = [
   { id: "intense", label: "Intense" },
 ];
 
-function itemHref(courseId: string, it: PlannerActivity): string | null {
-  if (it.kind === "mock") return "/mock";
+function itemHref(courseId: string, examId: string, it: PlannerActivity): string | null {
+  if (it.kind === "mock") return `/mock?course=${courseId}&exam=${examId}`;
   if (it.kind === "final" || !it.topicId) return null;
   return it.kind === "review" || it.kind === "weak"
     ? `/quiz/${courseId}/${it.topicId}`
     : `/learn/${courseId}/${it.topicId}`;
+}
+
+/** One runway activity row — deep-links to learn/quiz/mock (with course+exam
+ * context so a mock opens the right scope); milestone rows are non-clickable.
+ * Shared by the day cards and the exam-day cram list. */
+function RunwayItem({
+  item,
+  courseId,
+  examId,
+}: {
+  item: PlannerActivity;
+  courseId: string;
+  examId: string;
+}) {
+  const Icon = KIND_ICON[item.kind];
+  const href = itemHref(courseId, examId, item);
+  const inner = (
+    <>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{item.title}</span>
+        <span className="block truncate text-xs text-muted-foreground">
+          {PLANNER_KIND_LABEL[item.kind]}
+          {item.chapterTitle ? ` · ${item.chapterTitle}` : ""}
+        </span>
+      </span>
+      {href && (
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+      )}
+    </>
+  );
+  return href ? (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-lg bg-background/60 p-2 ring-1 ring-transparent transition hover:bg-background hover:ring-border"
+    >
+      {inner}
+    </Link>
+  ) : (
+    <div className="flex items-center gap-3 rounded-lg bg-background/40 p-2">{inner}</div>
+  );
 }
 
 export default async function PlanPage({
@@ -139,12 +182,17 @@ export default async function PlanPage({
 
   // Keep the timeline tight: detail the next ~2 weeks, then summarize the gap
   // before the exam day so a distant final doesn't scroll forever.
-  const days = focus.days;
+  // Study days only — the exam day is rendered as its own milestone below, so
+  // it must NOT also appear here (that double-rendered it for exams ≤ ~2 weeks).
+  const studyDays = focus.days.filter((d) => !d.isExamDay);
   const DETAIL = 15;
-  const detailed = days.length <= DETAIL + 1 ? days : days.slice(0, DETAIL);
-  const hiddenCount = days.length - detailed.length - 1; // minus the exam day
-  const examDay = days[days.length - 1];
-  const showSummaryGap = days.length > DETAIL + 1;
+  const detailed = studyDays.slice(0, DETAIL);
+  const hiddenCount = studyDays.length - detailed.length;
+  const examDay = focus.days.find((d) => d.isExamDay) ?? focus.days[focus.days.length - 1];
+  // Non-marker items on the exam day (only present when the exam is TODAY and
+  // topics remain — a last-minute cram list).
+  const examDayCram = examDay.items.filter((it) => it.kind !== "final");
+  const showSummaryGap = hiddenCount > 0;
 
   return (
     <div className="stagger mx-auto max-w-4xl">
@@ -303,43 +351,11 @@ export default async function PlanPage({
                 <p className="text-sm text-muted-foreground">Buffer day — rest, or get ahead.</p>
               ) : (
                 <ul className="space-y-1.5">
-                  {day.items.map((it, i) => {
-                    const Icon = KIND_ICON[it.kind];
-                    const href = itemHref(focus.courseId, it);
-                    const inner = (
-                      <>
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Icon className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{it.title}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {PLANNER_KIND_LABEL[it.kind]}
-                            {it.chapterTitle ? ` · ${it.chapterTitle}` : ""}
-                          </span>
-                        </span>
-                        {href && (
-                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
-                        )}
-                      </>
-                    );
-                    return (
-                      <li key={i}>
-                        {href ? (
-                          <Link
-                            href={href}
-                            className="group flex items-center gap-3 rounded-lg bg-background/60 p-2 ring-1 ring-transparent transition hover:bg-background hover:ring-border"
-                          >
-                            {inner}
-                          </Link>
-                        ) : (
-                          <div className="flex items-center gap-3 rounded-lg bg-background/40 p-2">
-                            {inner}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
+                  {day.items.map((it, i) => (
+                    <li key={i}>
+                      <RunwayItem item={it} courseId={focus.courseId} examId={focus.examId} />
+                    </li>
+                  ))}
                 </ul>
               )}
             </div>
@@ -365,6 +381,20 @@ export default async function PlanPage({
             <p className="text-sm text-muted-foreground">
               {focus.examName} — {prettyDate(focus.examDate)}. Trust your prep. You've got this.
             </p>
+            {examDayCram.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-xs font-medium text-primary">
+                  Exam is today — a fast final pass on what&apos;s left:
+                </p>
+                <ul className="space-y-1.5">
+                  {examDayCram.map((it, i) => (
+                    <li key={i}>
+                      <RunwayItem item={it} courseId={focus.courseId} examId={focus.examId} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </li>
       </ol>

@@ -147,9 +147,11 @@ export function buildExamPlan(
     const isExamDay = offset === daysLeft && daysLeft >= 0;
     const items: PlannerActivity[] = [];
 
-    if (isExamDay) {
-      items.push({ kind: "final", title: `${exam.name} — exam day. You've got this.` });
-    } else {
+    // The exam day is normally just a milestone — but if the exam is TODAY
+    // (daysLeft === 0) it's also the last chance to study, so it still carries
+    // the review + full cram list under the marker (nothing gets dropped).
+    const studyThisDay = !isExamDay || daysLeft === 0;
+    if (studyThisDay) {
       if (offset === 0) {
         for (const r of reviews.slice(0, 3)) {
           items.push({
@@ -161,8 +163,8 @@ export function buildExamPlan(
           });
         }
       }
-      // On the LAST study day, if topics remain, cram the rest; otherwise pace.
-      const isLastStudyDay = offset === daysLeft - 1;
+      // On the last study day (or the exam-is-today day), cram whatever's left.
+      const isLastStudyDay = offset === daysLeft - 1 || (daysLeft === 0 && offset === 0);
       const take = isLastStudyDay ? pool.length - cursor : perDay;
       for (let k = 0; k < take && cursor < pool.length; k++, cursor++) {
         const t = pool[cursor];
@@ -177,9 +179,12 @@ export function buildExamPlan(
       if (offset === mockOffset) {
         items.push({ kind: "mock", title: `Take a mock exam (${exam.name} scope)` });
       }
-      if (cursor >= pool.length && offset === Math.max(0, daysLeft - 1) && topicsLeft > 0) {
+      if (!isExamDay && cursor >= pool.length && offset === Math.max(0, daysLeft - 1) && topicsLeft > 0) {
         items.push({ kind: "final", title: "Final review — skim weak spots & key definitions" });
       }
+    }
+    if (isExamDay) {
+      items.push({ kind: "final", title: `${exam.name} — exam day. You've got this.` });
     }
 
     days.push({

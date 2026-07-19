@@ -116,3 +116,33 @@ test("intensity raises the per-day cap", () => {
   assert.equal(mk("steady"), 6);
   assert.equal(mk("intense"), 10);
 });
+
+test("exam today (daysLeft 0) still crams every remaining topic — nothing dropped", () => {
+  const ids = ["t1", "t2", "t3"];
+  const plan = buildExamPlan(
+    courseWith(ids),
+    statsWith(ids.map((id) => topicRef(id, "not_started"))),
+    exam("2026-07-19"), // exam is today
+    { todayKey: "2026-07-19" }
+  );
+  assert.equal(plan.daysLeft, 0);
+  assert.equal(plan.days.length, 1);
+  assert.equal(plan.days[0].isExamDay, true);
+  const topics = [...new Set(plan.days[0].items.filter((i) => i.topicId).map((i) => i.topicId))].sort();
+  assert.deepEqual(topics, ids); // all crammed onto the single (exam) day
+  assert.ok(plan.days[0].items.some((i) => i.kind === "final")); // + the marker
+});
+
+test("exactly one exam day, and topics are never duplicated or dropped", () => {
+  const ids = Array.from({ length: 8 }, (_, i) => `t${i}`);
+  const plan = buildExamPlan(
+    courseWith(ids),
+    statsWith(ids.map((id) => topicRef(id, "not_started"))),
+    exam("2026-07-24"), // 5 days out
+    { todayKey: "2026-07-19" }
+  );
+  assert.equal(plan.days.filter((d) => d.isExamDay).length, 1);
+  const scheduled = plan.days.flatMap((d) => d.items).filter((i) => i.topicId).map((i) => i.topicId);
+  assert.equal(scheduled.length, new Set(scheduled).size); // no duplicates
+  assert.equal(new Set(scheduled).size, ids.length); // nothing dropped
+});
