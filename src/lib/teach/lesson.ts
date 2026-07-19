@@ -106,11 +106,9 @@ Put the correct source page number(s) in each section's "pages" — that is how 
 
 COVERAGE CONTRACT — the student will never read the handouts themselves, so your lesson must carry everything:
 - Walk through EVERY heading, concept, definition, note, rule, list, and table that the material contains for this topic. Nothing gets skipped or waved away.
-- Explicitly teach every listed subtopic; never silently omit one.
 - If the material includes an exercise, practice question, review question, or MCQ for this topic, do not skip it: restate what it asks in plain words, invite the student to pause and try it themselves first, then solve it step by step INSIDE A SECTION, explain WHY the answer is right, and mention the mistake students usually make on it. Solve each numbered item EXACTLY ONCE — never re-solve the same exercise again under "examples".
 - When the material NUMBERS its exercises/examples (e.g. "Exercise 1", "Exercise - 5", "Example 8.36"), refer to each one BY ITS EXACT NUMBER and solve every single one — a lesson that skips a numbered exercise is incomplete and will be rejected.
 - If the material describes a table or figure, explain in words what it shows, row by row or part by part, and what the student should notice.
-- Do not shorten or simplify away important content merely to save tokens.
 
 Teaching style (write for a beginner who finds this subject hard):
 - The first time any technical or formal term appears, say it once, then explain it in plain words ("in simple terms, this means…") and give a quick real-life analogy ("this works just like…").

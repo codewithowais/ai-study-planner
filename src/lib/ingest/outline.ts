@@ -34,7 +34,7 @@ const batchSchema = z.object({
         chapter: z.string().default(""),
         title: z.string().trim().min(2),
         subtopics: z.array(z.string()).default([]),
-        summary: z.string().trim().min(10),
+        summary: z.string().trim().min(4),
         sources: z.array(z.object({ page: z.number() })).min(1),
       })
     )

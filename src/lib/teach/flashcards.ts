@@ -3,6 +3,7 @@ import { parseModelJson } from "@/lib/ai/provider";
 import { withQualityRetry } from "@/lib/ai/quality";
 import {
   flashcardsSchema,
+  parseFlashcardDeck,
   type Flashcards,
 } from "@/lib/teach/content-quality";
 
@@ -42,6 +43,6 @@ ${material || "(no extracted material — make standard fundamental flashcards f
     provider: opts.provider,
     model: opts.model,
     timeoutMs: 120000,
-    parse: (text) => flashcardsSchema.parse(parseModelJson<Flashcards>(text)),
+    parse: (text) => parseFlashcardDeck(parseModelJson(text)),
   });
 }

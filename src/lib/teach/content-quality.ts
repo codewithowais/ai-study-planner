@@ -97,7 +97,9 @@ export type Lesson = z.infer<typeof lessonSchema>;
 
 export const summarySchema = z.object({
   tldr: useful(40),
-  keyPoints: z.array(useful(10)).min(4).max(10),
+  // Floor 3 (fewer thin-topic retries); slice the ceiling instead of rejecting
+  // an over-long list.
+  keyPoints: z.array(useful(10)).min(3).transform((p) => p.slice(0, 10)),
   keyTerms: z
     .array(z.object({ term: useful(2), definition: useful(12) }))
     .default([]),
@@ -109,7 +111,7 @@ export const flashcardsSchema = z
   .object({
     cards: z
       .array(z.object({ front: useful(8), back: useful(15) }))
-      .min(6)
+      .min(5)
       .max(10),
   })
   .superRefine((deck, ctx) => {
@@ -126,6 +128,32 @@ export const flashcardsSchema = z
 export type Flashcards = z.infer<typeof flashcardsSchema>;
 
 /**
+ * Tolerant flashcard parser (mirrors the quiz salvage): validate each card,
+ * drop duplicate fronts (keep the first), cap at 10, require a floor of 5 — so
+ * one duplicate or short card doesn't reject the whole deck and force a full,
+ * doubled regeneration.
+ */
+export function parseFlashcardDeck(value: unknown): Flashcards {
+  const env = z.object({ cards: z.array(z.unknown()) }).parse(value);
+  const card = z.object({ front: useful(8), back: useful(15) });
+  const seen = new Set<string>();
+  const cards: { front: string; back: string }[] = [];
+  for (const raw of env.cards) {
+    const parsed = card.safeParse(raw);
+    if (!parsed.success) continue;
+    const key = parsed.data.front.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cards.push(parsed.data);
+    if (cards.length >= 10) break;
+  }
+  if (cards.length < 5) {
+    throw new Error(`Only ${cards.length} usable flashcards — regenerate.`);
+  }
+  return { cards };
+}
+
+/**
  * Numbered exercises/examples present in source pages ("Exercise 3",
  * "Example 8.36", "Question - 2"). Generated lessons MUST address every one
  * of them by number — enforced deterministically at parse time, not just
@@ -139,6 +167,11 @@ export function requiredExerciseLabels(
     for (const m of s.text.matchAll(
       /\b(exercise|example|question|problem)\s*[-–—]?\s*(\d+(?:\.\d+)?)\b/gi
     )) {
+      // Real handout labels are capitalized ("Exercise 5", "Example 8.36",
+      // "EXERCISE 3"); an all-lowercase keyword is almost always prose ("for
+      // example 5%"). Requiring a phantom exercise would fail the coverage
+      // gate and throw the whole (fattest) lesson into a full, doubled retry.
+      if (m[1] === m[1].toLowerCase()) continue;
       const kind = m[1].toLowerCase();
       const number = m[2];
       seen.set(`${kind} ${number}`, { kind, number });

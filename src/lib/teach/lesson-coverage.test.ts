@@ -40,6 +40,19 @@ test("every numbered exercise/example in the sources is required", () => {
   ]);
 });
 
+test("lowercase prose keywords are not treated as required exercises", () => {
+  const prose = requiredExerciseLabels([
+    { text: "For example 5% of salary is exempt. In this problem 2 things matter. See question 7." },
+  ]);
+  assert.deepEqual(prose, []); // all lowercase → prose, not real labels
+
+  // Capitalized labels (including ALL-CAPS headings) are still detected.
+  const real = requiredExerciseLabels([{ text: "Example 8.36 and EXERCISE 3 and Question 2" }])
+    .map((r) => `${r.kind} ${r.number}`)
+    .sort();
+  assert.deepEqual(real, ["example 8.36", "exercise 3", "question 2"]);
+});
+
 test("a lesson that solves every numbered item passes; one that skips fails", () => {
   const required = requiredExerciseLabels(SOURCES);
   const complete = lessonWith(

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   flashcardsSchema,
   lessonSchema,
+  parseFlashcardDeck,
   summarySchema,
 } from "./content-quality.ts";
 
@@ -65,6 +66,32 @@ test("bad or missing visuals/selfCheck fall back to [] instead of throwing the l
   });
   assert.equal(ok.visuals.length, 1);
   assert.equal(ok.visuals[0].type, "flow");
+});
+
+test("flashcard salvage drops duplicate/invalid cards instead of rejecting the deck", () => {
+  const deck = parseFlashcardDeck({
+    cards: [
+      { front: "What is taxable income?", back: "Income left after allowable deductions are applied." },
+      { front: "What is taxable income?", back: "A duplicate front — should be dropped." },
+      { front: "bad", back: "This card's front is too short and should be dropped." },
+      { front: "Name the canons of taxation", back: "Simplicity, certainty, convenience, and ability to pay." },
+      { front: "What is a tax year?", back: "The twelve-month period income is assessed over." },
+      { front: "What is fiscal policy?", back: "How government uses tax and spending to steer the economy." },
+      { front: "What is a fee?", back: "A charge paid for a specific service you receive back." },
+    ],
+  });
+  const fronts = deck.cards.map((c) => c.front);
+  assert.equal(new Set(fronts).size, fronts.length); // no duplicate fronts survived
+  assert.ok(deck.cards.length >= 5); // enough salvaged
+  assert.ok(!fronts.includes("bad")); // the too-short card was dropped
+});
+
+test("flashcard salvage still throws when too few usable cards remain", () => {
+  assert.throws(() =>
+    parseFlashcardDeck({
+      cards: [{ front: "Only one good card here", back: "Not enough to make a full deck." }],
+    })
+  );
 });
 
 test("flashcard decks require six useful and unique recall prompts", () => {
