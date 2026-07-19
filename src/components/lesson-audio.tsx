@@ -16,9 +16,16 @@ import {
 /**
  * "Listen to this lesson" — the browser's built-in speech synthesis (no
  * network, no keys), tuned to sound like a calm, patient tutor rather than a
- * robot: a natural voice is auto-selected, the pace is gentle, short pauses
+ * robot: the most natural available voice is auto-selected (novelty/robotic
+ * voices are hidden and never picked), the pace is gentle, short pauses
  * separate sentences, and text is cleaned so citations/symbols/bullets aren't
  * read aloud. Students can pick their own voice and reading speed (remembered).
+ *
+ * NOTE: expressiveness (emotion/confidence) is a property of the VOICE, not
+ * something the Web Speech API lets us control — it only exposes rate/pitch/
+ * voice, no SSML or emotion. The lifelike voices (Siri/Enhanced on Safari,
+ * "… Online (Natural)" on Edge) come from the browser+OS; when only compact
+ * voices exist we surface a hint on how to get a better one.
  */
 
 const SPEEDS = [
@@ -29,37 +36,70 @@ const SPEEDS = [
 ] as const;
 const DEFAULT_SPEED = 1; // Calm
 
-// Higher-quality voices, most-preferred first, for the automatic pick.
-const VOICE_PATTERNS = [
-  /natural/i,
-  /neural/i,
-  /enhanced/i,
-  /premium/i,
-  /\bava\b/i,
-  /\bjenny\b/i,
-  /\baria\b/i,
-  /\bsonia\b/i,
-  /\blibby\b/i,
-  /samantha/i,
-  /google us english/i,
-  /google uk english female/i,
-  /\bserena\b/i,
-  /\bkaren\b/i,
-  /\bmoira\b/i,
-  /\bdaniel\b/i,
+// Apple's novelty / legacy "fun" voices (robotic, sung, whispered). They're
+// useless for studying and clutter the picker — never auto-pick or list them.
+const NOVELTY_VOICES = new Set(
+  [
+    "Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos",
+    "Eddy", "Flo", "Fred", "Good News", "Grandma", "Grandpa", "Jester",
+    "Junior", "Kathy", "Organ", "Ralph", "Reed", "Rocko", "Sandy", "Shelley",
+    "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox", "Bruce", "Princess",
+  ].map((n) => n.toLowerCase()),
+);
+
+/** A voice's name without its " (English (United States))" locale suffix. */
+function baseName(name: string): string {
+  return name.replace(/\s*\(.*\)\s*$/, "").trim();
+}
+function isNovelty(name: string): boolean {
+  return NOVELTY_VOICES.has(baseName(name).toLowerCase());
+}
+
+// The genuinely natural / expressive voices, most-preferred first. "Siri",
+// "Neural", "Natural", "Enhanced"/"Premium" and the named cloud voices sound
+// like a person; the plain compact voices only read words out. Which of these
+// exist depends on the browser: Safari exposes macOS Siri/Enhanced voices,
+// Edge exposes Microsoft "… Online (Natural)", Chrome exposes "Google …".
+const PREFERRED_VOICES = [
+  /siri/i, /neural/i, /natural/i, /enhanced/i, /premium/i,
+  /\bava\b/i, /\bzoe\b/i, /\bevan\b/i, /\bnathan\b/i, /\bserena\b/i,
+  /\bjenny\b/i, /\baria\b/i, /\bguy\b/i, /\bsonia\b/i, /\blibby\b/i,
+  /google us english/i, /google uk english female/i,
+  /samantha/i, /\bkaren\b/i, /\bmoira\b/i, /\btessa\b/i, /\bdaniel\b/i,
 ];
+
+/** Rank for sorting the picker — lower is better; unlisted voices sort last. */
+function voiceRank(name: string): number {
+  for (let i = 0; i < PREFERRED_VOICES.length; i++)
+    if (PREFERRED_VOICES[i].test(name)) return i;
+  return PREFERRED_VOICES.length;
+}
+
+/** Does this browser expose at least one truly natural (non-compact) voice? */
+function hasNaturalVoice(voices: SpeechSynthesisVoice[]): boolean {
+  return voices.some((v) =>
+    /siri|neural|natural|enhanced|premium|google|online/i.test(v.name),
+  );
+}
 
 function englishVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
   const en = voices.filter((v) => /^en([-_]|$)/i.test(v.lang));
-  const pool = en.length ? en : voices;
-  // De-dupe by name, keep stable order.
+  const base = en.length ? en : voices;
   const seen = new Set<string>();
-  return pool.filter((v) => (seen.has(v.name) ? false : (seen.add(v.name), true)));
+  const usable = base
+    .filter((v) => !isNovelty(v.name))
+    .filter((v) => (seen.has(v.name) ? false : (seen.add(v.name), true)))
+    // Best voices first, so the picker opens on something worth hearing.
+    .sort(
+      (a, b) => voiceRank(a.name) - voiceRank(b.name) || a.name.localeCompare(b.name),
+    );
+  // Never hand back nothing (e.g. a device where every voice was denylisted).
+  return usable.length ? usable : base;
 }
 
 function autoPick(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   const pool = englishVoices(voices);
-  for (const rx of VOICE_PATTERNS) {
+  for (const rx of PREFERRED_VOICES) {
     const match = pool.find((v) => rx.test(v.name));
     if (match) return match;
   }
@@ -76,6 +116,7 @@ function cleanForSpeech(text: string): string {
     .replace(/\be\.g\.\s*/gi, "for example, ")
     .replace(/\bi\.e\.\s*/gi, "that is, ")
     .replace(/\betc\.?/gi, "and so on")
+    .replace(/\s+[-–—]\s+/g, ", ") // spaced dash → a natural pause, not a run-on
     .replace(/[*_`#>|]/g, "") // markdown noise
     .replace(/^\s*[-•·]\s+/gm, "") // leading bullet markers
     .replace(/\s+([.,;:])/g, "$1") // tidy stray space before punctuation
@@ -90,6 +131,7 @@ export function LessonAudio({ text }: { text: string }) {
   const [speedIndex, setSpeedIndex] = useState(DEFAULT_SPEED);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceName, setVoiceName] = useState<string>(""); // "" = automatic
+  const [platform, setPlatform] = useState<"mac" | "win" | "other">("other");
   const chunks = useRef<string[]>([]);
   const idx = useRef(0);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
@@ -97,10 +139,13 @@ export function LessonAudio({ text }: { text: string }) {
 
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   const readMin = Math.max(1, Math.round(words / 200));
+  const naturalAvailable = hasNaturalVoice(voices);
 
   useEffect(() => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
     setSupported(!!synth);
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    setPlatform(/Mac|iP(hone|ad|od)/i.test(ua) ? "mac" : /Win/i.test(ua) ? "win" : "other");
     if (!synth) return;
 
     try {
@@ -166,7 +211,7 @@ export function LessonAudio({ text }: { text: string }) {
     u.pitch = 1;
     u.volume = 1;
     u.onend = () => {
-      window.setTimeout(() => speakFrom(idx.current + 1), 140);
+      window.setTimeout(() => speakFrom(idx.current + 1), 180);
     };
     u.onerror = () => setState("idle");
     synth.speak(u);
@@ -282,7 +327,7 @@ export function LessonAudio({ text }: { text: string }) {
                 {SPEEDS[speedIndex].label}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-[60vh] w-56 overflow-y-auto">
+            <DropdownMenuContent align="end" className="max-h-[70vh] w-72 overflow-y-auto">
               <DropdownMenuLabel>Reading speed</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={String(speedIndex)} onValueChange={onSpeedChange}>
                 {SPEEDS.map((s, i) => (
@@ -296,11 +341,47 @@ export function LessonAudio({ text }: { text: string }) {
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Voice</DropdownMenuLabel>
+                  {!naturalAvailable && (
+                    <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
+                      <p className="mb-1 font-medium text-foreground">
+                        Sounds flat? Unlock a warmer, human voice — free:
+                      </p>
+                      {platform === "mac" ? (
+                        <ol className="ml-3.5 list-decimal space-y-1">
+                          <li>
+                            System Settings › Accessibility › Spoken Content › System
+                            Voice › <span className="font-medium">Manage Voices</span>,
+                            and download one marked{" "}
+                            <span className="font-medium">(Enhanced)</span> or{" "}
+                            <span className="font-medium">(Premium)</span> — e.g. Ava,
+                            Zoe, or Samantha.
+                          </li>
+                          <li>
+                            Open this page in <span className="font-medium">Safari</span>,
+                            then pick that voice here.
+                          </li>
+                        </ol>
+                      ) : platform === "win" ? (
+                        <p>
+                          Open this page in{" "}
+                          <span className="font-medium">Microsoft Edge</span> — its
+                          “Online (Natural)” voices sound far more human and will show up
+                          in this list automatically.
+                        </p>
+                      ) : (
+                        <p>
+                          Install a “Natural”/“Neural” system voice, or open the app in a
+                          Chromium-based browser — better voices then appear here
+                          automatically.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <DropdownMenuRadioGroup value={voiceName || "__auto"} onValueChange={onVoiceChange}>
                     <DropdownMenuRadioItem value="__auto">Automatic (best)</DropdownMenuRadioItem>
                     {voices.map((v) => (
                       <DropdownMenuRadioItem key={v.name} value={v.name}>
-                        {v.name.replace(/\s*\(.*\)$/, "")}
+                        {baseName(v.name)}
                       </DropdownMenuRadioItem>
                     ))}
                   </DropdownMenuRadioGroup>

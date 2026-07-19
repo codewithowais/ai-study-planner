@@ -154,6 +154,25 @@ CLI isn't installed, linking straight to settings.
 7. **Progress is saved** to the JSON store; **resume** any time.
 8. **Mock exams** sample questions across the whole course.
 
+## A more natural lesson voice
+
+"Listen" uses your **browser's built-in** speech (no network, no keys), so how
+human it sounds depends on the voices your browser exposes — the Web Speech API
+itself has no "emotion"/tone control, only speed and voice. The app always
+auto-selects the most natural voice available and hides the robotic "novelty"
+voices. To get a genuinely warm, expressive voice — free and fully offline:
+
+- **macOS:** System Settings › Accessibility › Spoken Content › System Voice ›
+  *Manage Voices*, and download a voice marked **(Enhanced)** or **(Premium)**
+  (e.g. Ava, Zoe, Samantha). Then open the app in **Safari** and pick it from
+  the voice menu on any lesson.
+- **Windows:** open the app in **Microsoft Edge** — its "Online (Natural)"
+  voices sound far more human and appear automatically.
+
+(A cloud neural voice with true tone control — e.g. a "warm, confident tutor"
+instruction — is possible but intentionally not built in: it needs an API key
+and would send lesson text off your machine.)
+
 ## Data & privacy
 
 All data lives in `./data` (git-ignored): `users.json`, `sessions.json`,
