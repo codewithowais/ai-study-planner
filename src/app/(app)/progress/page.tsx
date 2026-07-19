@@ -247,12 +247,13 @@ function CourseProgress({
                 Past mock exams
               </p>
               {mockAttempts.length > 1 && (
-                <Sparkline values={mockAttempts.map((a) => a.score)} />
+                // mockAttempts is stored newest-first; Sparkline wants oldest→newest.
+                <Sparkline values={[...mockAttempts].reverse().map((a) => a.score)} />
               )}
             </div>
             <ul className="space-y-1.5">
-              {[...mockAttempts]
-                .reverse()
+              {/* mockAttempts is newest-first; show the 6 most recent as-is. */}
+              {mockAttempts
                 .slice(0, 6)
                 .map((a) => {
                   const correct = a.answers.filter((x) => x.correct).length;
