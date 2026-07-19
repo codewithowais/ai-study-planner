@@ -5,6 +5,7 @@ import { fail, handle, ok } from "@/lib/api";
 import { getCourse, savePendingQuiz } from "@/lib/store/repositories";
 import { generateMockExam } from "@/lib/quiz/mock";
 import { scopeCourseToExam } from "@/lib/exams";
+import { runGenerationOnce } from "@/lib/ai/generation-lock";
 import type { PendingQuiz } from "@/lib/quiz/scoring";
 
 const schema = z.object({
@@ -45,10 +46,17 @@ export const POST = handle(async (req: Request) => {
     }
   }
 
-  const questions = await generateMockExam(examCourse, count ?? 10, {
-    provider: user.settings.provider,
-    model: user.settings.model,
-  });
+  // A mock is a fresh sitting, so it's NOT cached — but dedupe concurrent
+  // identical requests (double-click / reload during generation) so an
+  // accidental repeat shares one AI call instead of spending twice.
+  const questions = await runGenerationOnce(
+    `mock:${user.id}:${courseId}:${examId ?? "full"}:${count ?? 10}`,
+    () =>
+      generateMockExam(examCourse, count ?? 10, {
+        provider: user.settings.provider,
+        model: user.settings.model,
+      })
+  );
 
   if (questions.length === 0) {
     return fail("Could not generate the mock exam. Please try again.", 502);

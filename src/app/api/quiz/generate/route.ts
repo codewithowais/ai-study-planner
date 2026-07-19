@@ -2,15 +2,24 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { fail, handle, ok } from "@/lib/api";
-import { getCourse, getProgress, savePendingQuiz } from "@/lib/store/repositories";
+import {
+  getCourse,
+  getProgress,
+  getQuizSet,
+  saveQuizSet,
+  savePendingQuiz,
+} from "@/lib/store/repositories";
 import { gatherSourceText, locateTopic } from "@/lib/teach/context";
-import { generateQuiz } from "@/lib/quiz/generate";
+import { generateQuiz, QUIZ_PROMPT_VERSION } from "@/lib/quiz/generate";
+import { getOrGenerateCached } from "@/lib/ai/cache-key";
+import type { QuizQuestion } from "@/lib/types";
 import type { PendingQuiz } from "@/lib/quiz/scoring";
 
 const schema = z.object({
   courseId: z.string(),
   topicId: z.string(),
   count: z.number().int().min(3).max(10).optional(),
+  regenerate: z.boolean().optional(),
 });
 
 export const runtime = "nodejs";
@@ -18,7 +27,7 @@ export const maxDuration = 200;
 
 export const POST = handle(async (req: Request) => {
   const user = await requireUser();
-  const { courseId, topicId, count } = schema.parse(await req.json());
+  const { courseId, topicId, count, regenerate } = schema.parse(await req.json());
 
   const course = await getCourse(courseId);
   if (!course || course.userId !== user.id) return fail("Course not found.", 404);
@@ -30,19 +39,45 @@ export const POST = handle(async (req: Request) => {
   const entry = progress?.topics[topicId];
   const focusPrompts =
     entry?.status === "weak" ? entry.lastWrongPrompts : undefined;
+  const hasFocus = !!focusPrompts && focusPrompts.length > 0;
 
-  const sources = await gatherSourceText(course, loc.topic);
-  const questions = await generateQuiz(
-    {
-      topic: loc.topic,
-      chapterTitle: loc.chapterTitle,
-      courseTitle: course.title,
-      sources,
-      count: count ?? 5,
-      focusPrompts,
-    },
-    { provider: user.settings.provider, model: user.settings.model }
-  );
+  const generateFresh = async () => {
+    const sources = await gatherSourceText(course, loc.topic);
+    return generateQuiz(
+      {
+        topic: loc.topic,
+        chapterTitle: loc.chapterTitle,
+        courseTitle: course.title,
+        sources,
+        count: count ?? 5,
+        focusPrompts,
+      },
+      { provider: user.settings.provider, model: user.settings.model }
+    );
+  };
+
+  // A weak-topic targeted re-quiz is attempt-specific — always fresh, never
+  // cached (it would poison the topic's canonical set). Otherwise serve the
+  // cached set on open, and regenerate only on an explicit "Retake".
+  const questions = hasFocus
+    ? await generateFresh()
+    : await getOrGenerateCached<QuizQuestion[]>({
+        fingerprintInput: {
+          feature: "quiz",
+          promptVersion: QUIZ_PROMPT_VERSION,
+          provider: user.settings.provider,
+          model: user.settings.model ?? process.env.AI_MODEL ?? "default",
+          courseTitle: course.title,
+          chapterTitle: loc.chapterTitle,
+          topic: loc.topic,
+          count: count ?? 5,
+        },
+        read: () => (regenerate ? null : getQuizSet<unknown>(courseId, topicId)),
+        save: (cache) => saveQuizSet(courseId, topicId, cache),
+        generate: generateFresh,
+        isStale: (qs) => qs.length === 0,
+        acceptLegacy: false,
+      });
 
   if (questions.length === 0) {
     return fail("Could not generate a quiz for this topic. Please try again.", 502);

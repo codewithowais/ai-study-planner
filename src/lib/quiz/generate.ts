@@ -3,6 +3,9 @@ import { parseModelJson } from "@/lib/ai/provider";
 import { withQualityRetry } from "@/lib/ai/quality";
 import { parseQuestionSet, toQuizQuestion } from "@/lib/quiz/question-quality";
 
+// Bump to invalidate cached quiz sets when the quiz prompt materially changes.
+export const QUIZ_PROMPT_VERSION = 1;
+
 const SYSTEM =
   "You are a warm tutor writing quiz questions for ONE student, in plain language a " +
   "smart 12-year-old could follow. Questions are fair, unambiguous, and test ONE topic. " +

@@ -293,6 +293,24 @@ export async function getPlanCoach<T>(
   return readJson<T | null>(`plan-coach/${courseId}_${examId}.json`, null);
 }
 
+// A per-topic quiz "set" (full questions incl. answers) cached so re-opening a
+// topic's quiz doesn't re-spend tokens; "Retake" regenerates it. Separate from
+// the per-attempt pending store (quizzes/{attemptId}.json), which is transient.
+export async function getQuizSet<T>(
+  courseId: string,
+  topicId: string
+): Promise<T | null> {
+  return readJson<T | null>(`quiz-sets/${courseId}_${topicId}.json`, null);
+}
+
+export async function saveQuizSet<T>(
+  courseId: string,
+  topicId: string,
+  quiz: T
+): Promise<void> {
+  await writeJson<T>(`quiz-sets/${courseId}_${topicId}.json`, quiz);
+}
+
 export async function savePlanCoach<T>(
   courseId: string,
   examId: string,

@@ -67,20 +67,29 @@ export default function QuizPage() {
   const [result, setResult] = useState<SubmitResp | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null>(null);
 
-  const generate = useCallback(async () => {
-    setPhase("loading");
-    setError(null);
-    setAnswers({});
-    setResult(null);
-    try {
-      const res = await api.post<GenResp>("/api/quiz/generate", { courseId, topicId });
-      setQuiz(res);
-      setPhase("taking");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to generate quiz.");
-      setPhase("error");
-    }
-  }, [courseId, topicId]);
+  const generate = useCallback(
+    async (regenerate = false) => {
+      setPhase("loading");
+      setError(null);
+      setAnswers({});
+      setResult(null);
+      try {
+        // regenerate:false serves the cached quiz set on open; "Retake" passes
+        // true for fresh questions.
+        const res = await api.post<GenResp>("/api/quiz/generate", {
+          courseId,
+          topicId,
+          regenerate,
+        });
+        setQuiz(res);
+        setPhase("taking");
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Failed to generate quiz.");
+        setPhase("error");
+      }
+    },
+    [courseId, topicId]
+  );
 
   const redo = useCallback(async () => {
     setPhase("loading");
@@ -152,7 +161,7 @@ export default function QuizPage() {
             <AlertTriangle className="h-8 w-8 text-destructive" />
             <p className="font-medium">{error}</p>
             <div className="flex gap-2">
-              <Button onClick={generate}>
+              <Button onClick={() => generate()}>
                 <RefreshCw className="h-4 w-4" />
                 Try again
               </Button>
@@ -175,7 +184,7 @@ export default function QuizPage() {
           courseId={courseId}
           topicId={topicId}
           nextTopicId={quiz?.nextTopicId ?? null}
-          onRetake={generate}
+          onRetake={() => generate(true)}
           onRedo={redo}
           onViewSource={(p) => setSourcePage(p)}
         />
