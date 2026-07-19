@@ -625,6 +625,13 @@ function SelfCheck({ items }: { items: { question: string; answer: string }[] })
   );
 }
 
+const QUICK_PROMPTS = [
+  "Explain this more simply",
+  "Give me an example",
+  "Quiz me on this topic",
+  "What's most important for the exam?",
+] as const;
+
 function TutorChat({
   courseId,
   topicId,
@@ -728,12 +735,7 @@ function TutorChat({
               Stuck on “{topicTitle}”? Ask anything — answers are grounded in your material.
             </p>
             <div className="flex flex-wrap gap-2">
-              {[
-                "Explain this more simply",
-                "Give me an example",
-                "Quiz me on this topic",
-                "What's most important for the exam?",
-              ].map((p) => (
+              {QUICK_PROMPTS.map((p) => (
                 <button
                   key={p}
                   onClick={() => send(p)}
@@ -765,7 +767,22 @@ function TutorChat({
           </div>
         )}
       </div>
-      <div className="flex items-end gap-2 border-t border-border p-3">
+      <div className="border-t border-border">
+        {messages.length > 0 && (
+          <div className="scroll-slim flex gap-1.5 overflow-x-auto px-3 pt-2.5">
+            {QUICK_PROMPTS.map((p) => (
+              <button
+                key={p}
+                onClick={() => send(p)}
+                disabled={sending}
+                className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1 text-xs text-foreground/70 transition hover:border-primary hover:text-accent-foreground disabled:opacity-50"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-end gap-2 p-3">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -782,6 +799,7 @@ function TutorChat({
         <Button size="icon" onClick={() => send()} disabled={sending || !input.trim()}>
           <Send className="h-4 w-4" />
         </Button>
+        </div>
       </div>
     </Card>
   );

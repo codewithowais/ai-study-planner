@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
+import { SourceDrawer } from "@/components/source-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -79,6 +80,7 @@ export default function MockExamPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<SubmitResp | null>(null);
+  const [sourcePage, setSourcePage] = useState<number | null>(null);
 
   useEffect(() => {
     api
@@ -166,6 +168,7 @@ export default function MockExamPage() {
     const pass = result.score >= 60;
     return (
       <div className="mx-auto max-w-3xl">
+        <SourceDrawer courseId={courseId} page={sourcePage} onClose={() => setSourcePage(null)} />
         <Card className="mb-6 overflow-hidden">
           <div
             className={cn(
@@ -228,7 +231,15 @@ export default function MockExamPage() {
                   <p className="mt-3 rounded-md bg-secondary/60 p-3 text-sm">
                     <span className="font-medium">Why: </span>
                     {q.explanation}
-                    {q.source ? ` (p.${q.source.page})` : ""}
+                    {q.source && (
+                      <button
+                        onClick={() => setSourcePage(q.source!.page)}
+                        className="ml-1 rounded bg-background/70 px-1.5 py-0.5 text-xs font-medium text-primary transition hover:bg-accent"
+                        title="View this page from your material"
+                      >
+                        p.{q.source.page}
+                      </button>
+                    )}
                   </p>
                 )}
               </CardContent>
