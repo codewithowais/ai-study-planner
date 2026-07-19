@@ -1,5 +1,6 @@
 import type { Course, ResourcePage, Topic } from "@/lib/types";
 import { getResource } from "@/lib/store/repositories";
+import { cleanResourcePages } from "@/lib/ingest/clean-text";
 
 export interface TopicLocation {
   topic: Topic;
@@ -33,7 +34,7 @@ export async function gatherSourceText(
   course: Course,
   topic: Topic,
   maxChars = 14000
-): Promise<{ page: number; text: string }[]> {
+): Promise<{ file: string; page: number; text: string }[]> {
   // Pages are numbered per-file, so we key by "<file>::<page>" to avoid
   // collisions when a course has multiple resources.
   const key = (file: string, page: number) => `${file}::${page}`;
@@ -52,7 +53,10 @@ export async function gatherSourceText(
     const resource = await getResource(rid);
     if (!resource) continue;
     knownFiles.add(resource.fileName);
-    for (const p of resource.pages as ResourcePage[]) {
+    // Legacy resources were stored before extraction-time cleaning; cleaning
+    // is idempotent, so applying it here covers them (headers/footers/page
+    // markers are pure token waste in every prompt). Runs only on cache miss.
+    for (const p of cleanResourcePages(resource.pages as ResourcePage[])) {
       pageText.set(key(resource.fileName, p.page), p.text);
     }
   }
@@ -71,7 +75,7 @@ export async function gatherSourceText(
     .filter((w): w is { file: string; page: number } => w !== null)
     .sort((a, b) => (a.file === b.file ? a.page - b.page : a.file.localeCompare(b.file)));
 
-  const out: { page: number; text: string }[] = [];
+  const out: { file: string; page: number; text: string }[] = [];
   let used = 0;
   const seen = new Set<string>();
   for (const w of chosen) {
@@ -80,10 +84,14 @@ export async function gatherSourceText(
     seen.add(k);
     const text = pageText.get(k)!;
     if (used + text.length > maxChars) {
-      out.push({ page: w.page, text: text.slice(0, Math.max(0, maxChars - used)) });
+      out.push({
+        file: w.file,
+        page: w.page,
+        text: text.slice(0, Math.max(0, maxChars - used)),
+      });
       break;
     }
-    out.push({ page: w.page, text });
+    out.push({ file: w.file, page: w.page, text });
     used += text.length;
   }
   return out;

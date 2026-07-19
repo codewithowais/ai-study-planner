@@ -9,6 +9,16 @@ export interface GenerateInput {
   provider?: "claude" | "codex";
   model?: string;
   timeoutMs?: number;
+  feature?: string;
+}
+
+export interface AiUsage {
+  /** Total rendered input, including cached reads and cache writes. */
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
 }
 
 export interface GenerateResult {
@@ -16,6 +26,7 @@ export interface GenerateResult {
   model: string;
   costUsd: number | null;
   durationMs: number | null;
+  usage: AiUsage;
 }
 
 function companionUrl(): string {
@@ -67,6 +78,7 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
         provider,
         model,
         timeoutMs: input.timeoutMs,
+        feature: input.feature,
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(input.timeoutMs ? input.timeoutMs + 5000 : 300000),
@@ -86,7 +98,39 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
       (data as { error?: string }).error || `AI request failed (${res.status}).`
     );
   }
-  return data as GenerateResult;
+  const result = data as GenerateResult;
+  void logAiUsage(input.feature ?? "unknown", provider, result);
+  return result;
+}
+
+/**
+ * Append one line per AI call to data/ai-usage.jsonl so token spend per
+ * feature is observable (fire-and-forget; never blocks or fails a request).
+ * Local, single-user append-only log — rotate/delete freely.
+ */
+async function logAiUsage(
+  feature: string,
+  provider: string,
+  result: GenerateResult
+): Promise<void> {
+  try {
+    const { appendFile, mkdir } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = path.join(process.cwd(), "data");
+    await mkdir(dir, { recursive: true });
+    const line = JSON.stringify({
+      at: new Date().toISOString(),
+      feature,
+      provider,
+      model: result.model,
+      durationMs: result.durationMs,
+      costUsd: result.costUsd,
+      ...(result.usage ?? {}),
+    });
+    await appendFile(path.join(dir, "ai-usage.jsonl"), line + "\n", "utf8");
+  } catch {
+    /* observability must never break generation */
+  }
 }
 
 /**

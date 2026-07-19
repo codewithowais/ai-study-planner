@@ -1,4 +1,5 @@
 import type { ResourcePage } from "@/lib/types";
+import { cleanResourcePages } from "@/lib/ingest/clean-text";
 
 /**
  * Text extraction from uploaded files. Produces page-scoped text so every
@@ -72,7 +73,10 @@ export async function extractFromFile(
 ): Promise<ExtractResult> {
   const lower = fileName.toLowerCase();
   if (mimeType === "application/pdf" || lower.endsWith(".pdf")) {
-    return extractPdf(buffer);
+    const result = await extractPdf(buffer);
+    // Strip repeated headers/footers/page markers ONCE at extraction so the
+    // stored pages are clean for every downstream AI prompt.
+    return { ...result, pages: cleanResourcePages(result.pages) };
   }
   if (
     mimeType.startsWith("text/") ||
