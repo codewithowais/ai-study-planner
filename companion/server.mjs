@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import spawn from "cross-spawn";
 import { runClaude } from "./providers/claude.mjs";
 import { runCodex } from "./providers/codex.mjs";
+import { normalizeFeature } from "./provider-utils.mjs";
 
 /**
  * Local Companion Service.
@@ -109,9 +110,11 @@ async function detectProvider(name) {
     const version = (r.stdout || r.stderr).trim().split("\n")[0];
     return { installed: true, version };
   }
-  // Present but not runnable (e.g. missing native binary) — keep the reason.
-  const reason = (r.stderr || r.stdout || "").trim();
-  return { installed: false, version: null, error: reason ? reason.slice(0, 300) : null };
+  // Present but not runnable (e.g. missing native binary) — keep the reason,
+  // but only its first line: full stderr contains stack traces and local
+  // filesystem paths that don't belong in an API response.
+  const reason = (r.stderr || r.stdout || "").trim().split("\n")[0];
+  return { installed: false, version: null, error: reason ? reason.slice(0, 200) : null };
 }
 
 function send(res, status, body) {
@@ -164,6 +167,7 @@ const server = http.createServer(async (req, res) => {
         typeof body.model === "string" && body.model ? body.model : undefined;
       const timeoutMs =
         typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
+      const feature = normalizeFeature(body.feature);
 
       if (!prompt.trim()) {
         return send(res, 400, { error: "prompt is required." });
@@ -171,6 +175,17 @@ const server = http.createServer(async (req, res) => {
 
       const run = PROVIDERS[provider];
       const result = await run({ system, prompt, model, timeoutMs });
+      console.log(
+        JSON.stringify({
+          event: "ai_generation",
+          provider,
+          feature,
+          model: result.model,
+          durationMs: result.durationMs,
+          costUsd: result.costUsd,
+          usage: result.usage,
+        })
+      );
       return send(res, 200, result);
     } catch (err) {
       console.error("[companion] generate error:", err.message);
