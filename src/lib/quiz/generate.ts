@@ -2,6 +2,7 @@ import type { QuizQuestion, Topic } from "@/lib/types";
 import { parseModelJson } from "@/lib/ai/provider";
 import { withQualityRetry } from "@/lib/ai/quality";
 import { parseQuestionSet, toQuizQuestion } from "@/lib/quiz/question-quality";
+import { romanUrduJsonLine, type ContentLanguage } from "@/lib/teach/language";
 
 // Bump to invalidate cached quiz sets when the quiz prompt materially changes.
 export const QUIZ_PROMPT_VERSION = 1;
@@ -21,11 +22,13 @@ export async function generateQuiz(
     sources: { page: number; text: string }[];
     count?: number;
     focusPrompts?: string[];
+    language?: ContentLanguage;
   },
   opts: { provider?: "claude" | "codex"; model?: string } = {}
 ): Promise<QuizQuestion[]> {
-  const { topic, chapterTitle, courseTitle, sources, count = 5, focusPrompts } = params;
+  const { topic, chapterTitle, courseTitle, sources, count = 5, focusPrompts, language } = params;
   const material = sources.map((s) => `[[PAGE ${s.page}]]\n${s.text}`).join("\n\n");
+  const languageLine = language === "roman-ur" ? `\n${romanUrduJsonLine()}\n` : "";
 
   const focusLine =
     focusPrompts && focusPrompts.length
@@ -36,7 +39,7 @@ export async function generateQuiz(
       : "";
 
   const prompt = `Write ${count} multiple-choice questions to test understanding of the topic "${topic.title}" (chapter "${chapterTitle}", course "${courseTitle}").
-${focusLine}
+${focusLine}${languageLine}
 Requirements:
 - Each question has exactly 4 options.
 - Exactly one option is correct; "correctIndex" is its 0-based index.

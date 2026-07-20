@@ -17,9 +17,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Generating } from "@/components/generating";
+import { LanguageToggle } from "@/components/language-toggle";
 import { cn } from "@/lib/utils";
 import { api, ApiError } from "@/lib/client";
+import {
+  readLessonLanguage,
+  writeLessonLanguage,
+  type ContentLanguage,
+} from "@/lib/use-lesson-language";
 
 type Card = { front: string; back: string };
 type Phase = "loading" | "error" | "studying" | "done";
@@ -34,16 +41,19 @@ export default function FlashcardsPage() {
   const [flipped, setFlipped] = useState(false);
   const [gotIt, setGotIt] = useState(0);
   const [regenerating, setRegenerating] = useState(false);
+  const [language, setLanguage] = useState<ContentLanguage>("en");
 
   const load = useCallback(
-    async (regenerate = false) => {
+    async (opts?: { regenerate?: boolean; language?: ContentLanguage }) => {
+      const regenerate = !!opts?.regenerate;
+      const lang = opts?.language ?? language;
       setPhase(regenerate ? "studying" : "loading");
       setRegenerating(regenerate);
       setError(null);
       try {
         const res = await api.post<{ topicTitle: string; cards: Card[] }>(
           "/api/learn/flashcards",
-          { courseId, topicId, regenerate }
+          { courseId, topicId, regenerate, language: lang }
         );
         if (res.cards.length === 0) throw new ApiError("No flashcards were generated.", 502);
         setTitle(res.topicTitle);
@@ -59,12 +69,25 @@ export default function FlashcardsPage() {
         setRegenerating(false);
       }
     },
-    [courseId, topicId]
+    [courseId, topicId, language]
   );
 
+  // Restore the shared language and build the deck once per topic.
   useEffect(() => {
-    load();
-  }, [load]);
+    const saved = readLessonLanguage();
+    setLanguage(saved);
+    load({ language: saved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId, topicId]);
+
+  const switchLanguage = useCallback(
+    (lng: ContentLanguage) => {
+      writeLessonLanguage(lng);
+      setLanguage(lng);
+      load({ language: lng });
+    },
+    [load]
+  );
 
   const grade = useCallback(
     (got: boolean) => {
@@ -182,7 +205,7 @@ export default function FlashcardsPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-2">
         <Link
           href={`/learn/${courseId}/${topicId}`}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -190,15 +213,28 @@ export default function FlashcardsPage() {
           <ArrowLeft className="h-4 w-4" />
           {title}
         </Link>
-        <Button variant="ghost" size="sm" onClick={() => load(true)} disabled={regenerating}>
-          {regenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          New cards
-        </Button>
+        <div className="flex items-center gap-2">
+          <LanguageToggle value={language} onChange={switchLanguage} disabled={regenerating} />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => load({ regenerate: true })}
+            disabled={regenerating}
+          >
+            {regenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            New cards
+          </Button>
+        </div>
       </div>
 
       <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
-        <span>
+        <span className="flex items-center gap-2">
           Card {index + 1} of {cards.length}
+          {language === "roman-ur" && (
+            <Badge variant="secondary" className="font-normal">
+              Roman Urdu
+            </Badge>
+          )}
         </span>
         <span className="flex items-center gap-1 text-success">
           <Check className="h-3.5 w-3.5" />

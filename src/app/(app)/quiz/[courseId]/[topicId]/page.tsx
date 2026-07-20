@@ -24,6 +24,12 @@ import { api, ApiError } from "@/lib/client";
 import { STATUS_META } from "@/lib/status";
 import { SourceDrawer } from "@/components/source-drawer";
 import { Generating } from "@/components/generating";
+import { LanguageToggle } from "@/components/language-toggle";
+import {
+  readLessonLanguage,
+  writeLessonLanguage,
+  type ContentLanguage,
+} from "@/lib/use-lesson-language";
 import type { TopicStatus } from "@/lib/types";
 
 interface Question {
@@ -66,9 +72,12 @@ export default function QuizPage() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<SubmitResp | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null>(null);
+  const [language, setLanguage] = useState<ContentLanguage>("en");
 
   const generate = useCallback(
-    async (regenerate = false) => {
+    async (opts?: { regenerate?: boolean; language?: ContentLanguage }) => {
+      const regenerate = !!opts?.regenerate;
+      const lang = opts?.language ?? language;
       setPhase("loading");
       setError(null);
       setAnswers({});
@@ -80,6 +89,7 @@ export default function QuizPage() {
           courseId,
           topicId,
           regenerate,
+          language: lang,
         });
         setQuiz(res);
         setPhase("taking");
@@ -88,7 +98,16 @@ export default function QuizPage() {
         setPhase("error");
       }
     },
-    [courseId, topicId]
+    [courseId, topicId, language]
+  );
+
+  const switchLanguage = useCallback(
+    (lng: ContentLanguage) => {
+      writeLessonLanguage(lng);
+      setLanguage(lng);
+      generate({ language: lng });
+    },
+    [generate]
   );
 
   const redo = useCallback(async () => {
@@ -108,14 +127,21 @@ export default function QuizPage() {
   }, [courseId, topicId]);
 
   // On open, honour ?redo=1 (from Progress/Revision "Redo missed") — re-serve
-  // the exact questions missed last time; otherwise generate a fresh quiz.
+  // the exact questions missed last time; otherwise serve/generate the quiz in
+  // the reader's saved language.
   useEffect(() => {
     const wantRedo =
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("redo") === "1";
-    if (wantRedo) redo();
-    else generate();
-  }, [generate, redo]);
+    if (wantRedo) {
+      redo();
+      return;
+    }
+    const saved = readLessonLanguage();
+    setLanguage(saved);
+    generate({ language: saved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId, topicId]);
 
   async function submit() {
     if (!quiz) return;
@@ -184,7 +210,7 @@ export default function QuizPage() {
           courseId={courseId}
           topicId={topicId}
           nextTopicId={quiz?.nextTopicId ?? null}
-          onRetake={() => generate(true)}
+          onRetake={() => generate({ regenerate: true })}
           onRedo={redo}
           onViewSource={(p) => setSourcePage(p)}
         />
@@ -199,15 +225,29 @@ export default function QuizPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6">
-        <Link
-          href={`/learn/${courseId}/${topicId}`}
-          className="text-sm text-muted-foreground hover:text-foreground"
-        >
-          ← Back to lesson
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold tracking-tight">Quiz: {quiz?.topicTitle}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <Link
+              href={`/learn/${courseId}/${topicId}`}
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              ← Back to lesson
+            </Link>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight">Quiz: {quiz?.topicTitle}</h1>
+          </div>
+          <LanguageToggle
+            value={language}
+            onChange={switchLanguage}
+            disabled={phase === "submitting"}
+          />
+        </div>
+        <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
           {answered} of {total} answered
+          {language === "roman-ur" && (
+            <Badge variant="secondary" className="font-normal">
+              Roman Urdu
+            </Badge>
+          )}
         </p>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
           <div

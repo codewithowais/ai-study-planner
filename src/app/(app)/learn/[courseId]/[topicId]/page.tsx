@@ -46,6 +46,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { RichText } from "@/components/rich-text";
 import { api, ApiError } from "@/lib/client";
+import {
+  readLessonLanguage,
+  writeLessonLanguage,
+  type ContentLanguage,
+} from "@/lib/use-lesson-language";
 import { useToast } from "@/components/ui/use-toast";
 import type { Lesson } from "@/lib/teach/lesson";
 import type { Summary } from "@/lib/teach/summary";
@@ -90,13 +95,13 @@ export default function LearnPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
-  const [language, setLanguage] = useState<"en" | "roman-ur">("en");
+  const [language, setLanguage] = useState<ContentLanguage>("en");
 
   const load = useCallback(
     async (opts?: {
       regenerate?: boolean;
       depth?: "simpler" | "deeper";
-      language?: "en" | "roman-ur";
+      language?: ContentLanguage;
       /** true = re-render in place (keep showing the current lesson + spinner). */
       switching?: boolean;
     }) => {
@@ -127,20 +132,15 @@ export default function LearnPage() {
   // We drive (re)loads explicitly (below), so this depends on the topic — not
   // on `load` — to avoid a double fetch when the language state settles.
   useEffect(() => {
-    const saved =
-      typeof window !== "undefined" &&
-      window.localStorage.getItem("asp:lessonLang") === "roman-ur"
-        ? "roman-ur"
-        : "en";
+    const saved = readLessonLanguage();
     setLanguage(saved);
     load({ language: saved });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, topicId]);
 
   const switchLanguage = useCallback(
-    (lng: "en" | "roman-ur") => {
-      if (typeof window !== "undefined")
-        window.localStorage.setItem("asp:lessonLang", lng);
+    (lng: ContentLanguage) => {
+      writeLessonLanguage(lng);
       setLanguage(lng);
       load({ language: lng, switching: true });
     },
@@ -242,6 +242,13 @@ function LessonView({
   const [sourcePage, setSourcePage] = useState<number | null>(null);
   const prefetched = useRef<Set<string>>(new Set());
 
+  // Switching language reloads the lesson in place; drop any already-loaded
+  // summary so re-opening "Summarize" fetches it in the new language.
+  useEffect(() => {
+    setSummary(null);
+    setShowSummary(false);
+  }, [language]);
+
   // Warm the next topic's lesson in the background so "Next" feels instant.
   // Mark the id only inside the timer (not at effect-run time) so React 18
   // StrictMode's mount→cleanup→remount doesn't cancel then skip the prefetch.
@@ -275,6 +282,7 @@ function LessonView({
       const res = await api.post<{ summary: Summary }>("/api/learn/summary", {
         courseId,
         topicId: topic.id,
+        language,
       });
       setSummary(res.summary);
     } catch (err) {
@@ -623,7 +631,12 @@ function LessonView({
 
         {/* Right rail: tutor chat + notes */}
         <div className="space-y-5">
-          <TutorChat courseId={courseId} topicId={topic.id} topicTitle={topic.title} />
+          <TutorChat
+            courseId={courseId}
+            topicId={topic.id}
+            topicTitle={topic.title}
+            language={language}
+          />
           <NotesCard
             initial={progress.notes}
             onSave={(notes) => patch({ notes })}
@@ -696,10 +709,12 @@ function TutorChat({
   courseId,
   topicId,
   topicTitle,
+  language,
 }: {
   courseId: string;
   topicId: string;
   topicTitle: string;
+  language: ContentLanguage;
 }) {
   const [messages, setMessages] = useState<TutorChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -753,6 +768,7 @@ function TutorChat({
         courseId,
         topicId,
         message: text,
+        language,
       });
       setMessages((current) => [
         ...current.filter((item) => item.id !== temporaryId),

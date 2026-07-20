@@ -267,26 +267,34 @@ export async function saveLesson<T>(
   await writeJson<T>(`lessons/${courseId}_${topicId}${suffix}.json`, lesson);
 }
 
+// `variant` discriminates by language: "default" (English, no suffix — keeps
+// existing files) or "ur" (Roman Urdu → its own file). Same scheme as lessons.
 export async function getSummary<T>(
   courseId: string,
-  topicId: string
+  topicId: string,
+  variant: string = "default"
 ): Promise<T | null> {
-  return readJson<T | null>(`summaries/${courseId}_${topicId}.json`, null);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  return readJson<T | null>(`summaries/${courseId}_${topicId}${suffix}.json`, null);
 }
 
 export async function saveSummary<T>(
   courseId: string,
   topicId: string,
-  summary: T
+  summary: T,
+  variant: string = "default"
 ): Promise<void> {
-  await writeJson<T>(`summaries/${courseId}_${topicId}.json`, summary);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  await writeJson<T>(`summaries/${courseId}_${topicId}${suffix}.json`, summary);
 }
 
 export async function getFlashcards<T>(
   courseId: string,
-  topicId: string
+  topicId: string,
+  variant: string = "default"
 ): Promise<T | null> {
-  return readJson<T | null>(`flashcards/${courseId}_${topicId}.json`, null);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  return readJson<T | null>(`flashcards/${courseId}_${topicId}${suffix}.json`, null);
 }
 
 export async function getPlanCoach<T>(
@@ -301,17 +309,21 @@ export async function getPlanCoach<T>(
 // the per-attempt pending store (quizzes/{attemptId}.json), which is transient.
 export async function getQuizSet<T>(
   courseId: string,
-  topicId: string
+  topicId: string,
+  variant: string = "default"
 ): Promise<T | null> {
-  return readJson<T | null>(`quiz-sets/${courseId}_${topicId}.json`, null);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  return readJson<T | null>(`quiz-sets/${courseId}_${topicId}${suffix}.json`, null);
 }
 
 export async function saveQuizSet<T>(
   courseId: string,
   topicId: string,
-  quiz: T
+  quiz: T,
+  variant: string = "default"
 ): Promise<void> {
-  await writeJson<T>(`quiz-sets/${courseId}_${topicId}.json`, quiz);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  await writeJson<T>(`quiz-sets/${courseId}_${topicId}${suffix}.json`, quiz);
 }
 
 export async function savePlanCoach<T>(
@@ -325,9 +337,11 @@ export async function savePlanCoach<T>(
 export async function saveFlashcards<T>(
   courseId: string,
   topicId: string,
-  cards: T
+  cards: T,
+  variant: string = "default"
 ): Promise<void> {
-  await writeJson<T>(`flashcards/${courseId}_${topicId}.json`, cards);
+  const suffix = variant === "default" ? "" : `_${variant}`;
+  await writeJson<T>(`flashcards/${courseId}_${topicId}${suffix}.json`, cards);
 }
 
 /* -------------------------- Tutor chats --------------------------- */

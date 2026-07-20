@@ -10,11 +10,13 @@ import {
 import { gatherSourceText, locateTopic } from "@/lib/teach/context";
 import { buildTutorPrompt, prepareTutorContext } from "@/lib/teach/chat-memory";
 import { generate } from "@/lib/ai/provider";
+import { ROMAN_URDU_CHAT_LINE } from "@/lib/teach/language";
 import type { TutorChat, TutorChatMessage } from "@/lib/types";
 
 const querySchema = z.object({ courseId: z.string(), topicId: z.string() });
 const postSchema = querySchema.extend({
   message: z.string().trim().min(1).max(4000),
+  language: z.enum(["en", "roman-ur"]).optional(),
 });
 
 const SYSTEM =
@@ -87,7 +89,7 @@ export const GET = handle(async (req: Request) => {
 
 export const POST = handle(async (req: Request) => {
   const user = await requireUser();
-  const { courseId, topicId, message } = postSchema.parse(await req.json());
+  const { courseId, topicId, message, language } = postSchema.parse(await req.json());
   const owned = await locateOwnedTopic(user.id, courseId, topicId);
   if (!owned) return fail("Topic not found.", 404);
   const { course, location } = owned;
@@ -118,7 +120,7 @@ export const POST = handle(async (req: Request) => {
   });
 
   const { text } = await generate({
-    system: SYSTEM,
+    system: language === "roman-ur" ? `${SYSTEM} ${ROMAN_URDU_CHAT_LINE}` : SYSTEM,
     prompt,
     provider: user.settings.provider,
     model: user.settings.model,

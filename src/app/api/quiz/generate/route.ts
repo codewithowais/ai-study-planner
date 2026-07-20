@@ -12,6 +12,7 @@ import {
 import { gatherSourceText, locateTopic } from "@/lib/teach/context";
 import { generateQuiz, QUIZ_PROMPT_VERSION } from "@/lib/quiz/generate";
 import { getOrGenerateCached } from "@/lib/ai/cache-key";
+import { languageVariant, languageFingerprint } from "@/lib/teach/language";
 import type { QuizQuestion } from "@/lib/types";
 import type { PendingQuiz } from "@/lib/quiz/scoring";
 
@@ -20,6 +21,7 @@ const schema = z.object({
   topicId: z.string(),
   count: z.number().int().min(3).max(10).optional(),
   regenerate: z.boolean().optional(),
+  language: z.enum(["en", "roman-ur"]).optional(),
 });
 
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ export const maxDuration = 200;
 
 export const POST = handle(async (req: Request) => {
   const user = await requireUser();
-  const { courseId, topicId, count, regenerate } = schema.parse(await req.json());
+  const { courseId, topicId, count, regenerate, language } = schema.parse(await req.json());
 
   const course = await getCourse(courseId);
   if (!course || course.userId !== user.id) return fail("Course not found.", 404);
@@ -51,10 +53,13 @@ export const POST = handle(async (req: Request) => {
         sources,
         count: count ?? 5,
         focusPrompts,
+        language,
       },
       { provider: user.settings.provider, model: user.settings.model }
     );
   };
+
+  const variant = languageVariant(language);
 
   // A weak-topic targeted re-quiz is attempt-specific — always fresh, never
   // cached (it would poison the topic's canonical set). Otherwise serve the
@@ -71,9 +76,12 @@ export const POST = handle(async (req: Request) => {
           chapterTitle: loc.chapterTitle,
           topic: loc.topic,
           count: count ?? 5,
+          // undefined for English → identical hash to before (no re-billing);
+          // "roman-ur" → distinct fingerprint + its own generation lock.
+          language: languageFingerprint(language),
         },
-        read: () => (regenerate ? null : getQuizSet<unknown>(courseId, topicId)),
-        save: (cache) => saveQuizSet(courseId, topicId, cache),
+        read: () => (regenerate ? null : getQuizSet<unknown>(courseId, topicId, variant)),
+        save: (cache) => saveQuizSet(courseId, topicId, cache, variant),
         generate: generateFresh,
         isStale: (qs) => qs.length === 0,
         acceptLegacy: false,

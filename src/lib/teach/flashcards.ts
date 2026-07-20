@@ -6,6 +6,7 @@ import {
   parseFlashcardDeck,
   type Flashcards,
 } from "@/lib/teach/content-quality";
+import { romanUrduJsonLine, type ContentLanguage } from "@/lib/teach/language";
 
 export { flashcardsSchema };
 export type { Flashcards };
@@ -16,14 +17,20 @@ const SYSTEM =
   "recognition, and answers are plain and one sentence. Output ONLY valid JSON — no prose, no markdown fences.";
 
 export async function generateFlashcards(
-  params: { topic: Topic; chapterTitle: string; sources: { page: number; text: string }[] },
+  params: {
+    topic: Topic;
+    chapterTitle: string;
+    sources: { page: number; text: string }[];
+    language?: ContentLanguage;
+  },
   opts: { provider?: "claude" | "codex"; model?: string } = {}
 ): Promise<Flashcards> {
-  const { topic, chapterTitle, sources } = params;
+  const { topic, chapterTitle, sources, language } = params;
   const material = sources.map((s) => `[[PAGE ${s.page}]]\n${s.text}`).join("\n\n");
+  const languageLine = language === "roman-ur" ? `\n${romanUrduJsonLine()}\n` : "";
 
   const prompt = `Create 6-10 active-recall flashcards for the topic "${topic.title}" (chapter "${chapterTitle}").
-Each card: "front" is a short prompt that forces recall (e.g. "Name the canons of taxation"); "back" is the correct answer in plain words.
+Each card: "front" is a short prompt that forces recall (e.g. "Name the canons of taxation"); "back" is the correct answer in plain words.${languageLine}
 - Prefer recall prompts over "define X" where possible.
 - Write each "back" as ONE short sentence a student could say out loud — plain words, not copied textbook or legal phrasing. Keep the exam-critical term or number; drop the padding.
 - Cover the topic broadly rather than repeating one narrow fact.
