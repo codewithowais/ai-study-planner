@@ -18,7 +18,6 @@ import {
   chunkForNeural,
   synthesizeNeural,
 } from "@/lib/tts/neural-voice";
-import type { ContentLanguage } from "@/lib/use-lesson-language";
 
 /**
  * "Listen to this lesson" — two engines the student can switch between:
@@ -92,81 +91,28 @@ function hasNaturalVoice(voices: SpeechSynthesisVoice[]): boolean {
   );
 }
 
-/** All voices worth showing: drop Apple's novelty voices, dedupe by name. */
-function usableVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+function englishVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
+  const en = voices.filter((v) => /^en([-_]|$)/i.test(v.lang));
+  const base = en.length ? en : voices;
   const seen = new Set<string>();
-  return voices
+  const usable = base
     .filter((v) => !isNovelty(v.name))
-    .filter((v) => (seen.has(v.name) ? false : (seen.add(v.name), true)));
-}
-
-/**
- * Which voice languages suit a lesson language. Roman Urdu is spoken exactly
- * like Urdu/Hindi, so an Urdu (preferred) or Hindi voice pronounces the
- * romanized text naturally — an English voice reads the Latin letters with
- * English sounds, which is the "robot reading Roman letters" effect.
- */
-function matchesLang(voiceLang: string, language: ContentLanguage): boolean {
-  return language === "roman-ur"
-    ? /^(ur|hi)([-_]|$)/i.test(voiceLang)
-    : /^en([-_]|$)/i.test(voiceLang);
-}
-
-/** Within Roman Urdu, prefer an Urdu voice over a Hindi one. */
-function urHiRank(lang: string): number {
-  return /^ur/i.test(lang) ? 0 : /^hi/i.test(lang) ? 1 : 2;
-}
-
-/**
- * The picker / auto-pick pool for a lesson language, best first. For Roman
- * Urdu with no Urdu/Hindi voice installed, falls back to English voices (still
- * English-sounding, but the UI then tells the user how to add a better one).
- */
-function voicePool(
-  voices: SpeechSynthesisVoice[],
-  language: ContentLanguage,
-): SpeechSynthesisVoice[] {
-  const usable = usableVoices(voices);
-  const inLang = usable.filter((v) => matchesLang(v.lang, language));
-  if (language === "roman-ur") {
-    if (inLang.length)
-      return inLang.sort(
-        (a, b) =>
-          urHiRank(a.lang) - urHiRank(b.lang) ||
-          voiceRank(a.name) - voiceRank(b.name) ||
-          a.name.localeCompare(b.name),
-      );
-    const en = usable.filter((v) => /^en([-_]|$)/i.test(v.lang));
-    const base = en.length ? en : usable;
-    return base.sort(
+    .filter((v) => (seen.has(v.name) ? false : (seen.add(v.name), true)))
+    // Best voices first, so the picker opens on something worth hearing.
+    .sort(
       (a, b) => voiceRank(a.name) - voiceRank(b.name) || a.name.localeCompare(b.name),
     );
-  }
-  const base = inLang.length ? inLang : usable;
-  return base.sort(
-    (a, b) => voiceRank(a.name) - voiceRank(b.name) || a.name.localeCompare(b.name),
-  );
+  // Never hand back nothing (e.g. a device where every voice was denylisted).
+  return usable.length ? usable : base;
 }
 
-function autoPick(
-  voices: SpeechSynthesisVoice[],
-  language: ContentLanguage,
-): SpeechSynthesisVoice | null {
-  const pool = voicePool(voices, language);
+function autoPick(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  const pool = englishVoices(voices);
   for (const rx of PREFERRED_VOICES) {
     const match = pool.find((v) => rx.test(v.name));
     if (match) return match;
   }
   return pool[0] ?? voices[0] ?? null;
-}
-
-/** True when the device has a voice that actually fits the lesson language
- * (an Urdu/Hindi voice for Roman Urdu). */
-function hasNativeVoice(
-  voices: SpeechSynthesisVoice[],
-  language: ContentLanguage,
-): boolean {
-  return usableVoices(voices).some((v) => matchesLang(v.lang, language));
 }
 
 /** Make text flow naturally when spoken: drop citations, symbols and bullet
@@ -193,10 +139,12 @@ type Engine = "browser" | "neural";
 
 export function LessonAudio({
   text,
-  language = "en",
+  showListen = true,
 }: {
   text: string;
-  language?: ContentLanguage;
+  /** Whether to offer the Listen controls. False for languages we have no
+   * suitable voice for (e.g. Roman Urdu) — the read-time still shows. */
+  showListen?: boolean;
 }) {
   const [state, setState] = useState<PlayState>("idle");
   const [supported, setSupported] = useState(false);
@@ -224,11 +172,6 @@ export function LessonAudio({
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   const readMin = Math.max(1, Math.round(words / 200));
   const naturalAvailable = hasNaturalVoice(voices);
-  const pool = voicePool(voices, language);
-  // Roman Urdu is read by the built-in engine (the neural voices are English
-  // only); does the device actually have an Urdu/Hindi voice for it?
-  const romanUrdu = language === "roman-ur";
-  const nativeVoiceAvailable = hasNativeVoice(voices, language);
 
   useEffect(() => {
     const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
@@ -262,7 +205,7 @@ export function LessonAudio({
     if (!synth) return;
     const loadVoices = () => {
       const v = synth.getVoices();
-      if (v.length) setVoices(usableVoices(v));
+      if (v.length) setVoices(englishVoices(v));
     };
     loadVoices();
     synth.addEventListener?.("voiceschanged", loadVoices);
@@ -276,22 +219,12 @@ export function LessonAudio({
     };
   }, []);
 
-  // Resolve the active browser voice whenever the list, saved choice, or lesson
-  // language changes. A saved voice only sticks if it fits the current language
-  // (so an English pick doesn't get forced onto a Roman Urdu lesson).
+  // Resolve the active browser voice whenever the list or saved choice changes.
   useEffect(() => {
     if (!voices.length) return;
-    const saved = voiceName
-      ? voicePool(voices, language).find((v) => v.name === voiceName)
-      : null;
-    voiceRef.current = saved || autoPick(voices, language);
-  }, [voices, voiceName, language]);
-
-  // The neural voices are English-only, so a Roman Urdu lesson always plays
-  // through the built-in engine (which can use the device's Urdu/Hindi voice).
-  useEffect(() => {
-    engineRef.current = language === "roman-ur" ? "browser" : engine;
-  }, [language, engine]);
+    voiceRef.current =
+      (voiceName && voices.find((v) => v.name === voiceName)) || autoPick(voices);
+  }, [voices, voiceName]);
 
   // Stop narration when the topic (text) changes.
   useEffect(() => {
@@ -507,7 +440,7 @@ export function LessonAudio({
   function onVoiceChange(value: string) {
     const name = value === "__auto" ? "" : value;
     setVoiceName(name);
-    voiceRef.current = (name && voices.find((v) => v.name === name)) || autoPick(voices, language);
+    voiceRef.current = (name && voices.find((v) => v.name === name)) || autoPick(voices);
     try {
       if (name) localStorage.setItem("asp_tts_voice", name);
       else localStorage.removeItem("asp_tts_voice");
@@ -560,7 +493,7 @@ export function LessonAudio({
         <Clock className="h-3.5 w-3.5" />
         {readMin} min read
       </span>
-      {supported && words > 0 && (
+      {showListen && supported && words > 0 && (
         <>
           <span className="text-border">·</span>
           {state === "idle" && (
@@ -613,27 +546,18 @@ export function LessonAudio({
                 aria-label="Voice and speed settings"
               >
                 <Settings2 className="h-3.5 w-3.5" />
-                {!romanUrdu && engine === "neural" ? "Natural" : SPEEDS[speedIndex].label}
+                {engine === "neural" ? "Natural" : SPEEDS[speedIndex].label}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="max-h-[70vh] w-72 overflow-y-auto">
               <DropdownMenuLabel>Voice engine</DropdownMenuLabel>
-              {romanUrdu ? (
-                <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
-                  Roman Urdu plays through the{" "}
-                  <span className="font-medium text-foreground">Built-in</span> engine with
-                  a Hindi/Urdu voice. The “Natural” voices speak English only, so they’re
-                  off for Urdu.
-                </p>
-              ) : (
-                <DropdownMenuRadioGroup value={engine} onValueChange={onEngineChange}>
-                  <DropdownMenuRadioItem value="neural">
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />
-                    Natural — lifelike (beta)
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="browser">Built-in — instant</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              )}
+              <DropdownMenuRadioGroup value={engine} onValueChange={onEngineChange}>
+                <DropdownMenuRadioItem value="neural">
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5 text-primary" />
+                  Natural — lifelike (beta)
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="browser">Built-in — instant</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
 
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Reading speed</DropdownMenuLabel>
@@ -647,7 +571,7 @@ export function LessonAudio({
               </DropdownMenuRadioGroup>
 
               <DropdownMenuSeparator />
-              {!romanUrdu && engine === "neural" ? (
+              {engine === "neural" ? (
                 <>
                   <DropdownMenuLabel>Natural voice</DropdownMenuLabel>
                   <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
@@ -663,48 +587,10 @@ export function LessonAudio({
                   </DropdownMenuRadioGroup>
                 </>
               ) : (
-                (romanUrdu || voices.length > 0) && (
+                voices.length > 0 && (
                   <>
-                    <DropdownMenuLabel>
-                      {romanUrdu ? "Urdu / Hindi voice" : "Built-in voice"}
-                    </DropdownMenuLabel>
-                    {romanUrdu && nativeVoiceAvailable && (
-                      <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
-                        Using a Hindi/Urdu voice — the closest match your device has for
-                        spoken Urdu. Add an Urdu voice in your system settings for an even
-                        better fit.
-                      </p>
-                    )}
-                    {romanUrdu && !nativeVoiceAvailable && (
-                      <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
-                        <p className="mb-1 font-medium text-foreground">
-                          No Urdu/Hindi voice found, so Roman Urdu is read by an English
-                          voice (it won’t sound right). Add one, free:
-                        </p>
-                        {platform === "mac" ? (
-                          <p>
-                            System Settings › Accessibility › Spoken Content › System Voice
-                            › <span className="font-medium">Manage Voices</span>, download{" "}
-                            <span className="font-medium">Hindi</span> (e.g. Lekha) or{" "}
-                            <span className="font-medium">Urdu</span>, then pick it here.
-                          </p>
-                        ) : platform === "win" ? (
-                          <p>
-                            Settings › Time &amp; Language › Language &amp; region — add{" "}
-                            <span className="font-medium">Urdu</span> or{" "}
-                            <span className="font-medium">Hindi</span> with its speech pack,
-                            then pick it here.
-                          </p>
-                        ) : (
-                          <p>
-                            Install a <span className="font-medium">Hindi</span> or{" "}
-                            <span className="font-medium">Urdu</span> system/browser voice —
-                            it then appears here automatically.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {!romanUrdu && !naturalAvailable && (
+                    <DropdownMenuLabel>Built-in voice</DropdownMenuLabel>
+                    {!naturalAvailable && (
                       <div className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
                         <p className="mb-1 font-medium text-foreground">
                           Sounds flat? Try “Natural” above — or unlock a better built-in
@@ -743,7 +629,7 @@ export function LessonAudio({
                     )}
                     <DropdownMenuRadioGroup value={voiceName || "__auto"} onValueChange={onVoiceChange}>
                       <DropdownMenuRadioItem value="__auto">Automatic (best)</DropdownMenuRadioItem>
-                      {pool.map((v) => (
+                      {voices.map((v) => (
                         <DropdownMenuRadioItem key={v.name} value={v.name}>
                           {baseName(v.name)}
                         </DropdownMenuRadioItem>
