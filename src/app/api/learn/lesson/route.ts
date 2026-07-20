@@ -23,6 +23,8 @@ const schema = z.object({
   topicId: z.string(),
   regenerate: z.boolean().optional(),
   depth: z.enum(["simpler", "deeper"]).optional(),
+  /** Teaching language: Roman Urdu or English (default). */
+  language: z.enum(["en", "roman-ur"]).optional(),
   /** Warm the cache for an upcoming topic without touching progress/resume. */
   prefetch: z.boolean().optional(),
 });
@@ -32,7 +34,7 @@ export const maxDuration = 240;
 
 export const POST = handle(async (req: Request) => {
   const user = await requireUser();
-  const { courseId, topicId, regenerate, depth, prefetch } = schema.parse(
+  const { courseId, topicId, regenerate, depth, language, prefetch } = schema.parse(
     await req.json(),
   );
 
@@ -43,7 +45,13 @@ export const POST = handle(async (req: Request) => {
   const loc = locateTopic(course, topicId);
   if (!loc) return fail("Topic not found.", 404);
 
-  const variant = depth ?? "default";
+  // Cache each depth × language combination in its own file so English and
+  // Roman Urdu (and simpler/deeper) never overwrite one another. English with
+  // no depth stays "default" — unchanged, so existing caches still hit.
+  const variantParts: string[] = [];
+  if (depth) variantParts.push(depth);
+  if (language === "roman-ur") variantParts.push("ur");
+  const variant = variantParts.length ? variantParts.join("_") : "default";
   const fingerprintInput = {
     feature: "lesson",
     promptVersion: LESSON_PROMPT_VERSION,
@@ -86,9 +94,10 @@ export const POST = handle(async (req: Request) => {
         level: user.onboarding.level,
         sources,
         exclusivePages,
-        // Must match the fingerprint's depth or the variant cache would be
-        // poisoned with default-depth content.
+        // Must match the fingerprint's variant or the cache would be poisoned
+        // with the wrong depth/language content.
         depth,
+        language,
       },
       { provider: user.settings.provider, model: user.settings.model },
     );

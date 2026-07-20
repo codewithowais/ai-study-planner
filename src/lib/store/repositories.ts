@@ -245,10 +245,13 @@ export async function updateProgress(
 /* ---------------------------- Lessons ----------------------------- */
 // Cached generated lessons so revisits/resume are instant.
 
+// `variant` discriminates the cache file by depth AND language, e.g.
+// "default", "simpler", "deeper", "ur" (Roman Urdu), "simpler_ur". Kept as a
+// plain string so new combinations don't need a type change here.
 export async function getLesson<T>(
   courseId: string,
   topicId: string,
-  variant: "default" | "simpler" | "deeper" = "default"
+  variant: string = "default"
 ): Promise<T | null> {
   const suffix = variant === "default" ? "" : `_${variant}`;
   return readJson<T | null>(`lessons/${courseId}_${topicId}${suffix}.json`, null);
@@ -258,7 +261,7 @@ export async function saveLesson<T>(
   courseId: string,
   topicId: string,
   lesson: T,
-  variant: "default" | "simpler" | "deeper" = "default"
+  variant: string = "default"
 ): Promise<void> {
   const suffix = variant === "default" ? "" : `_${variant}`;
   await writeJson<T>(`lessons/${courseId}_${topicId}${suffix}.json`, lesson);

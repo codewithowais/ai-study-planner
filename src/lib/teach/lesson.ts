@@ -43,6 +43,12 @@ export async function generateLesson(
     sources: { page: number; text: string }[];
     depth?: "simpler" | "deeper";
     /**
+     * Teaching language. "roman-ur" writes the whole lesson in Roman Urdu
+     * (Urdu/Hindi typed in Latin letters), casual local-teacher tone;
+     * "en" (default) keeps it in English. JSON keys stay English either way.
+     */
+    language?: "en" | "roman-ur";
+    /**
      * Pages cited ONLY by this topic. Numbered exercises on these pages are
      * hard-required in the lesson; items on pages shared with other topics
      * are encouraged by the prompt but never cause a rejection (they belong
@@ -52,7 +58,7 @@ export async function generateLesson(
   },
   opts: { provider?: "claude" | "codex"; model?: string } = {}
 ): Promise<Lesson> {
-  const { topic, chapterTitle, courseTitle, level, sources, depth, exclusivePages } =
+  const { topic, chapterTitle, courseTitle, level, sources, depth, language, exclusivePages } =
     params;
 
   const material = sources
@@ -83,9 +89,15 @@ export async function generateLesson(
         ? "IMPORTANT: Go DEEPER than a basic overview — add rigor, nuance, edge cases, and the 'why' behind the rules for a student who already grasps the basics. Still stay grounded in the material."
         : "";
 
+  const languageLine =
+    language === "roman-ur"
+      ? 'LANGUAGE — WRITE THE WHOLE LESSON IN ROMAN URDU: Every piece of text you output (intro, section headings and content, key definitions, examples, exam tips, self-check questions AND answers, visual titles/labels) must be in ROMAN URDU — Urdu as people actually speak it, but typed in ENGLISH (Latin) letters, NOT in the Urdu/Arabic script. Use a warm, casual, friendly local-teacher voice, exactly how a good teacher explains out loud, e.g. "Jee bhai, aaj ka topic ye hai…", "chalo isko bilkul simple tareeqe se samajhte hain", "ghabrao mat, ye asaan hai". Keep the JSON KEYS themselves in English. Keep technical/subject terms, proper nouns, formulas, symbols and numbers as they normally appear — mixing English words into Roman Urdu is natural and expected, so write a term in English when there is no everyday Urdu word for it. CRITICAL: keep every numbered item label in English, exactly as in the material — write "Exercise 5", "Question 3", "Example 8.36" (do NOT translate these to "mashq", "sawaal" etc.) so no item is missed. Use Latin letters only — no Urdu/Arabic script anywhere.'
+      : "";
+
   const prompt = `Teach the topic "${topic.title}" from the chapter "${chapterTitle}" of the course "${courseTitle}".
 The student's self-assessed level is: ${level}. Pitch explanations accordingly, but always start from the fundamentals so a beginner can follow.
 ${depthLine}
+${languageLine}
 ${subtopicLine}
 ${exerciseLine}
 

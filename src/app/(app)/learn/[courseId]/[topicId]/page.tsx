@@ -25,6 +25,7 @@ import {
   Layers,
   Baby,
   Brain,
+  Languages,
   MoreHorizontal,
 } from "lucide-react";
 import { TopicNavigator } from "@/components/topic-navigator";
@@ -89,10 +90,17 @@ export default function LearnPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [language, setLanguage] = useState<"en" | "roman-ur">("en");
 
   const load = useCallback(
-    async (opts?: { regenerate?: boolean; depth?: "simpler" | "deeper" }) => {
-      const busy = !!opts?.regenerate || !!opts?.depth;
+    async (opts?: {
+      regenerate?: boolean;
+      depth?: "simpler" | "deeper";
+      language?: "en" | "roman-ur";
+      /** true = re-render in place (keep showing the current lesson + spinner). */
+      switching?: boolean;
+    }) => {
+      const busy = !!opts?.regenerate || !!opts?.depth || !!opts?.switching;
       setLoading(!busy);
       setRegenerating(busy);
       setError(null);
@@ -102,6 +110,7 @@ export default function LearnPage() {
           topicId,
           regenerate: opts?.regenerate,
           depth: opts?.depth,
+          language: opts?.language ?? language,
         });
         setData(res);
       } catch (err) {
@@ -111,12 +120,32 @@ export default function LearnPage() {
         setRegenerating(false);
       }
     },
-    [courseId, topicId]
+    [courseId, topicId, language]
   );
 
+  // On mount / topic change, restore the reader's saved language and load once.
+  // We drive (re)loads explicitly (below), so this depends on the topic — not
+  // on `load` — to avoid a double fetch when the language state settles.
   useEffect(() => {
-    load();
-  }, [load]);
+    const saved =
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("asp:lessonLang") === "roman-ur"
+        ? "roman-ur"
+        : "en";
+    setLanguage(saved);
+    load({ language: saved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId, topicId]);
+
+  const switchLanguage = useCallback(
+    (lng: "en" | "roman-ur") => {
+      if (typeof window !== "undefined")
+        window.localStorage.setItem("asp:lessonLang", lng);
+      setLanguage(lng);
+      load({ language: lng, switching: true });
+    },
+    [load]
+  );
 
   if (loading) return <LessonLoading />;
 
@@ -153,6 +182,8 @@ export default function LearnPage() {
       key={data.topic.id}
       data={data}
       courseId={courseId}
+      language={language}
+      onLanguage={switchLanguage}
       onRegenerate={() => load({ regenerate: true })}
       onDepth={(d) => load({ depth: d })}
       regenerating={regenerating}
@@ -183,6 +214,8 @@ function LessonLoading() {
 function LessonView({
   data,
   courseId,
+  language,
+  onLanguage,
   onRegenerate,
   onDepth,
   regenerating,
@@ -192,6 +225,8 @@ function LessonView({
 }: {
   data: LessonPayload;
   courseId: string;
+  language: "en" | "roman-ur";
+  onLanguage: (lng: "en" | "roman-ur") => void;
   onRegenerate: () => void;
   onDepth: (d: "simpler" | "deeper") => void;
   regenerating: boolean;
@@ -213,17 +248,21 @@ function LessonView({
   useEffect(() => {
     const nextId = nav.nextId;
     if (!nextId) return;
+    // Key the warm cache by language too, so switching re-warms in the new one.
+    const key = `${nextId}:${language}`;
     let cancelled = false;
     const t = setTimeout(() => {
-      if (cancelled || prefetched.current.has(nextId)) return;
-      prefetched.current.add(nextId);
-      api.post("/api/learn/lesson", { courseId, topicId: nextId, prefetch: true }).catch(() => {});
+      if (cancelled || prefetched.current.has(key)) return;
+      prefetched.current.add(key);
+      api
+        .post("/api/learn/lesson", { courseId, topicId: nextId, prefetch: true, language })
+        .catch(() => {});
     }, 1500); // let the current lesson settle first
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [nav.nextId, courseId]);
+  }, [nav.nextId, courseId, language]);
 
   async function loadSummary() {
     if (summary) {
@@ -292,8 +331,14 @@ function LessonView({
           <div>
             <p className="text-sm text-muted-foreground">{nav.chapterTitle}</p>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{topic.title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
               Topic {nav.index + 1} of {nav.total}
+              {language === "roman-ur" && (
+                <Badge variant="secondary" className="gap-1 font-normal">
+                  <Languages className="h-3 w-3" />
+                  Roman Urdu
+                </Badge>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -346,6 +391,21 @@ function LessonView({
                   <Brain className="h-4 w-4" />
                   Go deeper
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {language === "roman-ur" ? (
+                  <DropdownMenuItem onClick={() => onLanguage("en")} disabled={regenerating}>
+                    <Languages className="h-4 w-4" />
+                    Read in English
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={() => onLanguage("roman-ur")}
+                    disabled={regenerating}
+                  >
+                    <Languages className="h-4 w-4" />
+                    Roman Urdu mein parhein
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onRegenerate} disabled={regenerating}>
                   <RefreshCw className="h-4 w-4" />
