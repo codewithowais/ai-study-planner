@@ -428,7 +428,7 @@ function LessonView({
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Lesson */}
         <div className="space-y-5 lg:col-span-2">
-          <LessonAudio text={lessonToText(lesson)} />
+          <LessonAudio text={lessonToText(lesson)} language={language} />
           {showSummary && (
             <Card className="border-primary/30 bg-accent/40">
               <CardContent className="p-5">
