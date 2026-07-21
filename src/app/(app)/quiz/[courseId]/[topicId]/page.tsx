@@ -73,6 +73,9 @@ export default function QuizPage() {
   const [result, setResult] = useState<SubmitResp | null>(null);
   const [sourcePage, setSourcePage] = useState<number | null>(null);
   const [language, setLanguage] = useState<ContentLanguage>("en");
+  // A "Redo missed" session replays the exact questions missed last time, so it
+  // can't be regenerated in another language — hide the language toggle for it.
+  const [isRedo, setIsRedo] = useState(false);
 
   const generate = useCallback(
     async (opts?: { regenerate?: boolean; language?: ContentLanguage }) => {
@@ -82,6 +85,7 @@ export default function QuizPage() {
       setError(null);
       setAnswers({});
       setResult(null);
+      setIsRedo(false);
       try {
         // regenerate:false serves the cached quiz set on open; "Retake" passes
         // true for fresh questions.
@@ -115,6 +119,7 @@ export default function QuizPage() {
     setError(null);
     setAnswers({});
     setResult(null);
+    setIsRedo(true);
     try {
       const res = await api.post<GenResp>("/api/quiz/redo", { courseId, topicId });
       setQuiz(res);
@@ -130,6 +135,10 @@ export default function QuizPage() {
   // the exact questions missed last time; otherwise serve/generate the quiz in
   // the reader's saved language.
   useEffect(() => {
+    // Restore the saved language on EVERY entry path (including redo) so the
+    // toggle reflects the real preference and a later Retake regenerates in it.
+    const saved = readLessonLanguage();
+    setLanguage(saved);
     const wantRedo =
       typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("redo") === "1";
@@ -137,8 +146,6 @@ export default function QuizPage() {
       redo();
       return;
     }
-    const saved = readLessonLanguage();
-    setLanguage(saved);
     generate({ language: saved });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, topicId]);
@@ -235,15 +242,17 @@ export default function QuizPage() {
             </Link>
             <h1 className="mt-2 text-2xl font-bold tracking-tight">Quiz: {quiz?.topicTitle}</h1>
           </div>
-          <LanguageToggle
-            value={language}
-            onChange={switchLanguage}
-            disabled={phase === "submitting"}
-          />
+          {!isRedo && (
+            <LanguageToggle
+              value={language}
+              onChange={switchLanguage}
+              disabled={phase === "submitting"}
+            />
+          )}
         </div>
         <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
           {answered} of {total} answered
-          {language === "roman-ur" && (
+          {!isRedo && language === "roman-ur" && (
             <Badge variant="secondary" className="font-normal">
               Roman Urdu
             </Badge>
