@@ -1,146 +1,155 @@
-# AI Study Partner
+<div align="center">
 
-AI Study Partner helps you turn your own study material into a guided learning experience.
-Upload your PDFs or notes, and the app can:
+# 📚 AI Study Partner
 
-- create a study structure (subjects, chapters, topics)
-- explain topics step-by-step
-- generate quizzes and mock exams
-- track weak areas and progress
+### Learn from your own notes with a simple AI tutor
 
-This project is open source and designed to run on your own machine.
+[![Open Source](https://img.shields.io/badge/Open%20Source-Yes-22c55e)](https://github.com/codewithowais/ai-study-planner)
+![Beginner Friendly](https://img.shields.io/badge/Beginner%20Friendly-Yes-3b82f6)
+![Runs Locally](https://img.shields.io/badge/Runs-Local%20Machine-f59e0b)
 
-## Who this is for
+</div>
 
-- **Students** who want a personal study tutor
-- **Parents/teachers** helping someone revise
-- **Open-source contributors** who want to improve the app
+AI Study Partner is an open-source app for students.
+You upload your study files (PDFs/notes), and it helps you learn step by step.
 
-## What you need before starting
+## ✨ What this app can do
 
-- Node.js 18.17 or newer
-- An AI CLI account/tool supported by the app (`claude` or `codex`)
+- Turn your notes into chapters and topics
+- Explain topics in easy language
+- Create quizzes and mock exams
+- Show weak topics for revision
+- Save your learning progress
 
-## Quick start (recommended)
+## 👥 Who should use this
 
-1. Install dependencies:
+- Students preparing for exams
+- Parents and teachers helping students
+- Open-source beginners who want to contribute
+
+## ✅ Before you start
+
+You need:
+
+- Node.js 18.17+
+- One supported AI CLI: `claude` or `codex`
+
+## 🚀 Quick start (5 steps)
+
+1. Install packages:
 
    ```bash
    npm install
    ```
 
-2. Create your local environment file:
+2. Create local environment file:
 
    ```bash
    cp .env.example .env.local
    ```
 
-3. Set a secure companion secret in `.env.local`:
+3. Add this in `.env.local`:
 
    ```bash
    COMPANION_SECRET=your-long-random-secret
    ```
 
-   You can generate one with:
+4. (Optional) Generate a strong secret:
 
    ```bash
    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    ```
 
-4. Start everything:
+5. Start the app:
 
    ```bash
    npm run dev:all
    ```
 
-5. Open http://localhost:3000 and create your local account.
+Now open: **http://localhost:3000**
 
-## First-time setup in the app
+## 🛠 First-time setup inside the app
 
 After opening the app:
 
 1. Go to **Settings → AI settings**
-2. Make sure companion service is connected
-3. Install/sign in to your selected AI CLI if needed
-4. Upload your first PDF or notes and start learning
+2. Check companion status
+3. Install/sign in to your AI CLI if needed
+4. Upload your first study file
 
-## Daily use flow
+## 📖 How learning works
 
-1. Upload study material
-2. Let the app generate a course outline
+1. Upload PDF or notes
+2. App creates a course structure
 3. Learn topic-by-topic
 4. Take quizzes
-5. Revise weak topics
-6. Track progress over time
+5. Revise weak areas
+6. Track progress
 
-## Privacy and local data
+## 🔒 Privacy (simple)
 
-- Your account, progress, and uploaded files are stored locally in `./data`.
-- `./data` is git-ignored and not committed by default.
-- The app is intended for local personal use.
+- Your data is stored on your machine in `./data`
+- `./data` is git-ignored
+- This app is made for local personal use
 
-## Password reset
+## 🔑 Forgot password?
 
-If you forget your password:
+Reset local password:
 
 ```bash
 npm run reset-password
 ```
 
-Or reset a specific local email:
+Reset specific email:
 
 ```bash
 npm run reset-password you@example.com
 ```
 
-## Run with Docker (optional)
+## 🐳 Docker (optional)
 
-The web app can run in Docker, but the companion service should run on your host machine.
+Run companion on host:
 
-1. Start companion on host:
+```bash
+npm run companion
+```
 
-   ```bash
-   npm run companion
-   ```
+Then run web app in Docker:
 
-2. In another terminal, run Docker:
+```bash
+export $(grep -v '^#' .env.local | xargs)
+docker compose up --build
+```
 
-   ```bash
-   export $(grep -v '^#' .env.local | xargs)
-   docker compose up --build
-   ```
+Open: **http://localhost:3000**
 
-Then open http://localhost:3000.
+## 🤝 Contributing (easy)
 
-## For open-source contributors
-
-Contributions are welcome.
-
-1. Fork the repository
-2. Create a feature branch
-3. Make focused changes
-4. Run checks:
+1. Fork this repo
+2. Create a branch
+3. Make your changes
+4. Run:
 
    ```bash
    npm run lint
    npm run test
    ```
 
-5. Open a pull request with a clear summary
+5. Open a pull request with clear summary
 
-## Project structure
+## 📂 Project folders
 
-- `src/app` – pages and API routes
-- `src/components` – UI components
-- `src/lib` – core learning, quiz, ingest, and storage logic
-- `companion` – local AI companion service
-- `scripts` – helper scripts (dev and password reset)
+- `src/app` → pages and API routes
+- `src/components` → UI components
+- `src/lib` → app logic (learn, quiz, store, ingest)
+- `companion` → local AI companion service
+- `scripts` → helper scripts
 
-## Scripts reference
+## 📜 Useful scripts
 
-- `npm run dev` – start web app
-- `npm run companion` – start companion service
-- `npm run dev:all` – start both services
-- `npm run lint` – run linter
-- `npm run test` – run tests
-- `npm run build` – production build
+- `npm run dev` → start web app
+- `npm run companion` → start companion service
+- `npm run dev:all` → start both together
+- `npm run lint` → lint checks
+- `npm run test` → tests
+- `npm run build` → production build
